@@ -1,0 +1,18 @@
+# render.yaml
+services:
+  - type: web
+    name: claude-chatbot
+    env: node
+    buildCommand: npm install
+    startCommand: node src/server.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3000
+      - key: CORS_ORIGIN
+        value: https://your-hostinger-domain.com # Update this
+      - key: CLAUDE_API_KEY
+        sync: false # Will be set manually in Render dashboard
+      - key: REQUIRED_API_KEY
+        sync: false # Will be set manually in Render dashboard
