@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
-import pdfParse from 'pdf-parse/lib/pdf-parse.js';  // Changed import
+import pdfParse from 'pdf-parse/lib/pdf-parse.js';
 import mammoth from 'mammoth';
 import config from './config.js';
 import db from './db.js';
@@ -9,16 +9,16 @@ class DocumentService {
      * Validates file before processing
      */
     validateFile(file) {
+        console.log('Validating file:', file.originalname, file.mimetype, file.size);
+
         if (!file) {
             throw new Error('No file provided');
         }
 
         const allowedTypes = [
-            // Documents
             'application/pdf',
             'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
             'text/plain',
-            // Images
             'image/jpeg',
             'image/png',
             'image/webp',
@@ -26,7 +26,7 @@ class DocumentService {
         ];
 
         if (!allowedTypes.includes(file.mimetype)) {
-            throw new Error('File type not supported');
+            throw new Error(`File type ${file.mimetype} not supported`);
         }
 
         if (file.size > config.documents.maxFileSize) {
@@ -37,27 +37,35 @@ class DocumentService {
     }
 
     /**
-     * Extracts text from documents (not images)
+     * Extracts text from documents
      */
     async extractText(file) {
+        console.log('Extracting text from:', file.originalname, file.mimetype);
+
         try {
             switch (file.mimetype) {
                 case 'application/pdf':
                     try {
-                        const pdfData = await pdfParse(file.buffer);
-                        return pdfData.text;
-                    } catch (error) {
-                        console.error('PDF parsing error:', error);
-                        return ''; // Return empty string on PDF parse error
+                        // Add options to handle problematic PDFs
+                        const options = {
+                            max: 0, // no page limit
+                            version: 'v2.0.550'
+                        };
+                        const pdfData = await pdfParse(file.buffer, options);
+                        console.log('PDF processed successfully');
+                        return pdfData.text || 'No text content found in PDF';
+                    } catch (pdfError) {
+                        console.error('PDF processing error:', pdfError);
+                        throw new Error(`Failed to process PDF: ${pdfError.message}`);
                     }
 
                 case 'application/vnd.openxmlformats-officedocument.wordprocessingml.document':
                     try {
                         const result = await mammoth.extractRawText({ buffer: file.buffer });
-                        return result.value;
-                    } catch (error) {
-                        console.error('DOCX parsing error:', error);
-                        return ''; // Return empty string on DOCX parse error
+                        return result.value || 'No text content found in DOCX';
+                    } catch (docxError) {
+                        console.error('DOCX processing error:', docxError);
+                        throw new Error(`Failed to process DOCX: ${docxError.message}`);
                     }
 
                 case 'text/plain':
@@ -68,7 +76,7 @@ class DocumentService {
             }
         } catch (error) {
             console.error('Text extraction error:', error);
-            return ''; // Return empty string on any error
+            throw new Error(`Failed to extract text: ${error.message}`);
         }
     }
 
@@ -78,53 +86,77 @@ class DocumentService {
     createChunks(text, chunkSize = config.documents.chunkSize) {
         if (!text) return [];
 
-        const chunks = [];
-        const sentences = text.match(/[^.!?]+[.!?]+/g) || [text];
-        let currentChunk = '';
+        try {
+            const chunks = [];
+            const sentences = text.match(/[^.!?]+[.!?]+/g) || [text];
+            let currentChunk = '';
 
-        for (const sentence of sentences) {
-            if ((currentChunk + sentence).length <= chunkSize) {
-                currentChunk += sentence;
-            } else {
-                if (currentChunk) chunks.push(currentChunk.trim());
-                currentChunk = sentence;
+            for (const sentence of sentences) {
+                if ((currentChunk + sentence).length <= chunkSize) {
+                    currentChunk += sentence;
+                } else {
+                    if (currentChunk) chunks.push(currentChunk.trim());
+                    currentChunk = sentence;
+                }
             }
-        }
 
-        if (currentChunk) chunks.push(currentChunk.trim());
-        return chunks;
+            if (currentChunk) chunks.push(currentChunk.trim());
+            return chunks;
+        } catch (error) {
+            console.error('Error creating chunks:', error);
+            return [text]; // Return full text as single chunk if chunking fails
+        }
     }
 
     /**
-     * Processes and stores a document or image
+     * Processes and stores a document
      */
     async processDocument(file) {
+        console.log('Processing document:', file.originalname);
+
         try {
             this.validateFile(file);
 
             const documentId = uuidv4();
             const isImage = file.mimetype.startsWith('image/');
 
-            // For images, we store the base64 data for Claude to process
-            const base64Data = file.buffer.toString('base64');
+            // For images, store the base64 data
+            const base64Data = isImage ? file.buffer.toString('base64') : null;
 
-            // For documents, we extract text
-            const text = isImage ? '' : await this.extractText(file);
+            // For documents, extract text
+            let text = '';
+            if (!isImage) {
+                try {
+                    text = await this.extractText(file);
+                    if (!text) {
+                        throw new Error('No text content could be extracted');
+                    }
+                } catch (extractError) {
+                    console.error('Text extraction failed:', extractError);
+                    throw new Error(`Failed to extract text: ${extractError.message}`);
+                }
+            }
+
             const chunks = this.createChunks(text);
 
             // Save to database
-            await db.saveDocument(
-                documentId,
-                file.originalname,
-                text,
-                file.mimetype,
-                file.size,
-                isImage ? base64Data : null // Store base64 only for images
-            );
+            try {
+                await db.saveDocument(
+                    documentId,
+                    file.originalname,
+                    text,
+                    file.mimetype,
+                    file.size,
+                    isImage ? base64Data : null
+                );
 
-            // Save chunks for documents (not images)
-            if (!isImage && chunks.length > 0) {
-                await db.saveDocumentChunks(documentId, chunks);
+                // Save chunks for documents
+                if (!isImage && chunks.length > 0) {
+                    await db.saveDocumentChunks(documentId, chunks);
+                }
+            } catch (dbError) {
+                console.error('Database error:', dbError);
+                throw new Error(`Failed to save to database: ${dbError.message}`);
             }
 
             return {
@@ -154,48 +186,11 @@ class DocumentService {
 
             return {
                 type: document.type,
-                data: document.original_content // base64 data
+                data: document.original_content
             };
         } catch (error) {
             console.error('Get image error:', error);
             throw new Error(`Failed to retrieve image: ${error.message}`);
-        }
-    }
-
-    /**
-     * Searches documents based on query
-     */
-    async searchDocuments(query) {
-        try {
-            if (!query || typeof query !== 'string') {
-                throw new Error('Invalid search query');
-            }
-
-            return await db.searchDocuments(query);
-        } catch (error) {
-            console.error('Document search error:', error);
-            throw new Error('Failed to search documents');
-        }
-    }
-
-    /**
-     * Gets a specific document
-     */
-    async getDocument(id) {
-        try {
-            if (!id) {
-                throw new Error('Document ID is required');
-            }
-
-            const document = await db.getDocument(id);
-            if (!document) {
-                throw new Error('Document not found');
-            }
-
-            return document;
-        } catch (error) {
-            console.error('Get document error:', error);
-            throw new Error(`Failed to retrieve document: ${error.message}`);
         }
     }
 

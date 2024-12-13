@@ -18,13 +18,50 @@ const __dirname = path.dirname(__filename);
 // Initialize express app
 const app = express();
 
-// Configure multer for file uploads
+// Configure multer for file uploads with error handling
 const upload = multer({
     storage: multer.memoryStorage(),
     limits: {
         fileSize: config.documents.maxFileSize
+    },
+    fileFilter: (req, file, cb) => {
+        console.log('Processing file:', file.originalname, file.mimetype);
+        const allowedTypes = [
+            'application/pdf',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'text/plain',
+            'image/jpeg',
+            'image/png',
+            'image/webp',
+            'image/gif'
+        ];
+
+        if (!allowedTypes.includes(file.mimetype)) {
+            return cb(new Error(`File type ${file.mimetype} not supported`), false);
+        }
+        cb(null, true);
     }
-});
+}).single('file');
+
+// Custom error handling for multer
+const handleUpload = (req, res, next) => {
+    upload(req, res, (err) => {
+        if (err instanceof multer.MulterError) {
+            console.error('Multer error:', err);
+            return res.status(400).json({
+                error: true,
+                message: `File upload error: ${err.message}`
+            });
+        } else if (err) {
+            console.error('Upload error:', err);
+            return res.status(400).json({
+                error: true,
+                message: err.message
+            });
+        }
+        next();
+    });
+};
 
 // Middleware
 app.use(compression());
@@ -33,8 +70,6 @@ app.use(cors({
     methods: ['GET', 'POST'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-API-Key']
 }));
-
-// Important: Place these BEFORE the routes
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
@@ -49,8 +84,7 @@ app.use((req, res, next) => {
 // API Key middleware
 const validateApiKey = (req, res, next) => {
     const apiKey = req.header('X-API-Key');
-    console.log('Received API Key:', apiKey);
-    console.log('Expected API Key:', config.security.requiredApiKey);
+    console.log('Validating API Key');
 
     if (!apiKey || apiKey !== config.security.requiredApiKey) {
         console.log('API Key validation failed');
@@ -60,7 +94,6 @@ const validateApiKey = (req, res, next) => {
         });
     }
 
-    console.log('API Key validation successful');
     next();
 };
 
@@ -74,39 +107,57 @@ app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// Chat endpoint
-app.post('/api/chat', validateApiKey, upload.single('image'), async (req, res) => {
+// Chat endpoint with file handling
+app.post('/api/chat', validateApiKey, handleUpload, async (req, res) => {
     try {
-        console.log('Chat request received');
-        console.log('Body:', req.body);
-        console.log('File:', req.file);
-
+        console.log('Processing chat request');
         const query = req.body.query;
+
         if (!query) {
-            return res.status(400).json({ error: true, message: 'Query is required' });
+            return res.status(400).json({
+                error: true,
+                message: 'Query is required'
+            });
         }
 
-        let imageData = null;
-        if (req.file && req.file.mimetype.startsWith('image/')) {
-            imageData = {
-                type: req.file.mimetype,
-                data: req.file.buffer.toString('base64')
-            };
+        let fileContent = '';
+        if (req.file) {
+            try {
+                console.log('Processing uploaded file');
+                const result = await documentService.processDocument(req.file);
+                fileContent = `Content from uploaded file "${req.file.originalname}":\n\n`;
+
+                // Get document content from database
+                const doc = await db.getDocument(result.id);
+                if (doc && doc.content) {
+                    fileContent += doc.content;
+                }
+            } catch (fileError) {
+                console.error('File processing error:', fileError);
+                return res.status(400).json({
+                    error: true,
+                    message: `File processing error: ${fileError.message}`
+                });
+            }
         }
 
-        const validatedQuery = claudeService.validateQuery(query);
-        const response = await claudeService.processQuery(validatedQuery, imageData);
+        // Combine query with file content
+        const fullQuery = fileContent ? `${query}\n\nContext from uploaded file:\n${fileContent}` : query;
 
+        const response = await claudeService.processQuery(fullQuery);
         res.json(response);
+
     } catch (error) {
         console.error('Chat endpoint error:', error);
-        const errorResponse = claudeService.handleError(error);
-        res.status(errorResponse.code).json(errorResponse);
+        res.status(500).json({
+            error: true,
+            message: `Error processing request: ${error.message}`
+        });
     }
 });
 
 // Document upload endpoint
-app.post('/api/documents', validateApiKey, upload.single('file'), async (req, res) => {
+app.post('/api/documents', validateApiKey, handleUpload, async (req, res) => {
     try {
         if (!req.file) {
             return res.status(400).json({ error: 'No file uploaded' });
@@ -115,8 +166,11 @@ app.post('/api/documents', validateApiKey, upload.single('file'), async (req, re
         const result = await documentService.processDocument(req.file);
         res.json(result);
     } catch (error) {
-        const errorResponse = documentService.handleError(error);
-        res.status(errorResponse.code).json(errorResponse);
+        console.error('Document upload error:', error);
+        res.status(500).json({
+            error: true,
+            message: `Error uploading document: ${error.message}`
+        });
     }
 });
 
@@ -127,8 +181,11 @@ app.get('/api/documents/search', validateApiKey, async (req, res) => {
         const results = await documentService.searchDocuments(query);
         res.json(results);
     } catch (error) {
-        const errorResponse = documentService.handleError(error);
-        res.status(errorResponse.code).json(errorResponse);
+        console.error('Document search error:', error);
+        res.status(500).json({
+            error: true,
+            message: `Error searching documents: ${error.message}`
+        });
     }
 });
 
@@ -138,20 +195,11 @@ app.get('/api/documents/:id', validateApiKey, async (req, res) => {
         const document = await documentService.getDocument(req.params.id);
         res.json(document);
     } catch (error) {
-        const errorResponse = documentService.handleError(error);
-        res.status(errorResponse.code).json(errorResponse);
-    }
-});
-
-// Get conversation history
-app.get('/api/conversations', validateApiKey, async (req, res) => {
-    try {
-        const limit = parseInt(req.query.limit) || 10;
-        const history = await claudeService.getHistory(limit);
-        res.json(history);
-    } catch (error) {
-        const errorResponse = claudeService.handleError(error);
-        res.status(errorResponse.code).json(errorResponse);
+        console.error('Get document error:', error);
+        res.status(500).json({
+            error: true,
+            message: `Error retrieving document: ${error.message}`
+        });
     }
 });
 
@@ -161,7 +209,7 @@ app.use((err, req, res, next) => {
     res.status(500).json({
         error: true,
         message: 'An unexpected error occurred',
-        code: 500
+        details: err.message
     });
 });
 
@@ -182,18 +230,5 @@ const startServer = async () => {
     }
 };
 
-// Handle process termination
-process.on('SIGTERM', async () => {
-    console.log('SIGTERM received. Shutting down gracefully...');
-    await db.cleanup();
-    process.exit(0);
-});
-
-process.on('SIGINT', async () => {
-    console.log('SIGINT received. Shutting down gracefully...');
-    await db.cleanup();
-    process.exit(0);
-});
-
 // Start the server
-startServer();
+startServer().catch(console.error);
