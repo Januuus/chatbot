@@ -5,45 +5,33 @@ import db from './db.js';
 
 class ClaudeService {
     constructor() {
+        if (!config.claude.apiKey) {
+            console.error('Claude API key is not configured');
+        }
         this.client = new Anthropic({
             apiKey: config.claude.apiKey
         });
     }
 
     /**
-     * Builds context from relevant documents
+     * Validates the query before processing
      */
-    async buildContext(query) {
-        try {
-            const relevantChunks = await db.getRelevantDocumentChunks(query);
-            if (!relevantChunks.length) return '';
+    validateQuery(query) {
+        console.log('Validating query:', query);
 
-            const context = relevantChunks.map(chunk =>
-                `From document "${chunk.document_name}":\n${chunk.content}`
-            ).join('\n\n');
-
-            return context;
-        } catch (error) {
-            console.error('Error building context:', error);
-            return '';
+        if (!query || typeof query !== 'string') {
+            throw new Error('Invalid query format');
         }
-    }
 
-    /**
-     * Creates the system message with context
-     */
-    createSystemMessage(context) {
-        return `You are a helpful AI assistant with access to specific documents. 
-Your responses should be:
-1. Accurate and based on the provided context
-2. Clear and concise
-3. Professional in tone
+        if (query.trim().length === 0) {
+            throw new Error('Query cannot be empty');
+        }
 
-When referencing information, cite the source document.
-If you're unsure or don't have enough context, say so.
+        if (query.length > 4000) {
+            throw new Error('Query too long. Maximum length is 4000 characters');
+        }
 
-${context ? `Here's the relevant context from the documents:\n\n${context}` :
-                'No specific document context provided for this query.'}`;
+        return query.trim();
     }
 
     /**
@@ -51,12 +39,10 @@ ${context ? `Here's the relevant context from the documents:\n\n${context}` :
      */
     async processQuery(query, imageData = null, includeContext = true) {
         try {
-            const conversationId = uuidv4();
-            let context = '';
+            console.log('Processing query:', query);
+            console.log('Image data present:', !!imageData);
 
-            if (includeContext) {
-                context = await this.buildContext(query);
-            }
+            const conversationId = uuidv4();
 
             // Prepare messages array
             const messages = [{
@@ -82,59 +68,47 @@ ${context ? `Here's the relevant context from the documents:\n\n${context}` :
                 });
             }
 
+            console.log('Sending request to Claude API');
             const response = await this.client.messages.create({
                 model: config.claude.model,
                 max_tokens: config.claude.maxTokens,
                 temperature: config.claude.temperature,
-                system: this.createSystemMessage(context),
-                messages: messages
+                messages: messages,
+                system: "You are a helpful AI assistant. Provide clear and concise responses."
             });
 
+            console.log('Received response from Claude API');
+
             // Save conversation to database
-            await db.saveConversation(
-                conversationId,
-                query,
-                response.content[0].text,
-                context ? 'true' : 'false',
-                response.usage?.output_tokens || 0
-            );
+            try {
+                await db.saveConversation(
+                    conversationId,
+                    query,
+                    response.content[0].text,
+                    imageData ? 'true' : 'false',
+                    response.usage?.output_tokens || 0
+                );
+            } catch (dbError) {
+                console.error('Failed to save conversation:', dbError);
+                // Continue even if saving to database fails
+            }
 
             return {
                 id: conversationId,
                 response: response.content[0].text,
-                hasContext: Boolean(context),
-                hasImage: Boolean(imageData),
+                hasImage: !!imageData,
                 usage: response.usage
             };
 
         } catch (error) {
-            console.error('Error processing query:', error);
+            console.error('Error in processQuery:', error);
 
             if (error instanceof Anthropic.APIError) {
                 throw new Error(`Claude API Error: ${error.message}`);
             }
 
-            throw new Error('Failed to process query');
+            throw error;
         }
-    }
-
-    /**
-     * Validates the query before processing
-     */
-    validateQuery(query) {
-        if (!query || typeof query !== 'string') {
-            throw new Error('Invalid query format');
-        }
-
-        if (query.trim().length === 0) {
-            throw new Error('Query cannot be empty');
-        }
-
-        if (query.length > 4000) {
-            throw new Error('Query too long. Maximum length is 4000 characters');
-        }
-
-        return query.trim();
     }
 
     /**

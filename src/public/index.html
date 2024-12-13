@@ -6,6 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Claude Chatbot</title>
     <style>
+        /* Keep existing styles unchanged */
         body {
             font-family: Arial, sans-serif;
             max-width: 800px;
@@ -123,9 +124,8 @@
     <div id="loading" class="loading">Claude is thinking...</div>
 
     <script>
-        // Update these values with your deployed service information
-        const API_URL = '/api'; // Using relative path since we're serving from the same domain
-        const API_KEY = 'your-api-key-here'; // Update this with your actual API key
+        const API_URL = '/api';
+        const API_KEY = 'd657a91c9708a863991e0eaf95a5c718';
 
         let currentFile = null;
 
@@ -136,7 +136,6 @@
 
             currentFile = file;
 
-            // Show preview for images
             if (file.type.startsWith('image/')) {
                 const preview = document.getElementById('file-preview');
                 preview.style.display = 'block';
@@ -151,55 +150,61 @@
 
             if (!message && !currentFile) return;
 
-            // Add user message to chat
             addMessage(message, true);
             messageInput.value = '';
-
-            // Show loading
             document.getElementById('loading').style.display = 'block';
 
             try {
-                const formData = new FormData();
-                formData.append('query', message);
+                let requestData;
+                let requestHeaders;
 
                 if (currentFile) {
+                    // If we have a file, use FormData
+                    requestData = new FormData();
+                    requestData.append('query', message);
                     if (currentFile.type.startsWith('image/')) {
-                        formData.append('image', currentFile);
+                        requestData.append('image', currentFile);
                     } else {
-                        formData.append('file', currentFile);
+                        requestData.append('file', currentFile);
                     }
+                    // When using FormData, don't set Content-Type header
+                    requestHeaders = {
+                        'X-API-Key': API_KEY
+                    };
+                } else {
+                    // If no file, use JSON
+                    requestData = JSON.stringify({ query: message });
+                    requestHeaders = {
+                        'Content-Type': 'application/json',
+                        'X-API-Key': API_KEY
+                    };
                 }
 
                 const response = await fetch(`${API_URL}/chat`, {
                     method: 'POST',
-                    headers: {
-                        'X-API-Key': API_KEY
-                    },
-                    body: formData
+                    headers: requestHeaders,
+                    body: requestData
                 });
 
-                const data = await response.json();
-
-                if (data.error) {
-                    throw new Error(data.message);
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({}));
+                    throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
                 }
 
-                // Add bot response to chat
+                const data = await response.json();
                 addMessage(data.response, false);
 
-                // Clear file preview and current file
                 document.getElementById('file-preview').style.display = 'none';
                 currentFile = null;
 
             } catch (error) {
                 console.error('Error:', error);
-                addMessage('Sorry, an error occurred. Please try again.', false);
+                addMessage(`Error: ${error.message}`, false);
             } finally {
                 document.getElementById('loading').style.display = 'none';
             }
         }
 
-        // Add message to chat container
         function addMessage(message, isUser) {
             const chatContainer = document.getElementById('chat-container');
             const messageDiv = document.createElement('div');
@@ -209,14 +214,12 @@
             chatContainer.scrollTop = chatContainer.scrollHeight;
         }
 
-        // Handle enter key
         document.getElementById('message-input').addEventListener('keypress', (e) => {
             if (e.key === 'Enter') {
                 sendMessage();
             }
         });
 
-        // Add initial message
         window.onload = () => {
             addMessage('Hello! How can I help you today?', false);
         };

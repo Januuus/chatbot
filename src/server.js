@@ -12,7 +12,6 @@ import db from './db.js';
 import claudeService from './claude.js';
 import documentService from './documents.js';
 
-// Get directory name in ES modules
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -30,22 +29,17 @@ const upload = multer({
 // Middleware
 app.use(compression());
 app.use(cors({
-    origin: config.server.corsOrigin,
+    origin: '*',
     methods: ['GET', 'POST'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-API-Key']
 }));
+
+// Important: Place these BEFORE the routes
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Rate limiting
-const limiter = rateLimit({
-    windowMs: config.rateLimit.windowMs,
-    max: config.rateLimit.max,
-    message: 'Too many requests from this IP, please try again.'
-});
-app.use('/api/', limiter);
-
-// Debug middleware to log all requests
+// Debug middleware
 app.use((req, res, next) => {
     console.log(`${req.method} ${req.path}`);
     console.log('Headers:', req.headers);
@@ -70,7 +64,7 @@ const validateApiKey = (req, res, next) => {
     next();
 };
 
-// Root path - serve the chat interface
+// Root path
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
@@ -83,27 +77,25 @@ app.get('/api/health', (req, res) => {
 // Chat endpoint
 app.post('/api/chat', validateApiKey, upload.single('image'), async (req, res) => {
     try {
-        console.log('Chat request received:', req.body);
-        const query = req.body.query;
-        const includeContext = req.body.includeContext !== false;
-        let imageData = null;
+        console.log('Chat request received');
+        console.log('Body:', req.body);
+        console.log('File:', req.file);
 
+        const query = req.body.query;
+        if (!query) {
+            return res.status(400).json({ error: true, message: 'Query is required' });
+        }
+
+        let imageData = null;
         if (req.file && req.file.mimetype.startsWith('image/')) {
             imageData = {
                 type: req.file.mimetype,
                 data: req.file.buffer.toString('base64')
             };
         }
-        else if (req.body.imageId) {
-            try {
-                imageData = await documentService.getImageData(req.body.imageId);
-            } catch (error) {
-                console.warn('Failed to get image data:', error);
-            }
-        }
 
         const validatedQuery = claudeService.validateQuery(query);
-        const response = await claudeService.processQuery(validatedQuery, imageData, includeContext);
+        const response = await claudeService.processQuery(validatedQuery, imageData);
 
         res.json(response);
     } catch (error) {
