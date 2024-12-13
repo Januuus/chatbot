@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
-import pdfParse from 'pdf-parse';
+import pdfParse from 'pdf-parse/lib/pdf-parse.js';  // Changed import
 import mammoth from 'mammoth';
 import config from './config.js';
 import db from './db.js';
@@ -43,12 +43,22 @@ class DocumentService {
         try {
             switch (file.mimetype) {
                 case 'application/pdf':
-                    const pdfData = await pdfParse(file.buffer);
-                    return pdfData.text;
+                    try {
+                        const pdfData = await pdfParse(file.buffer);
+                        return pdfData.text;
+                    } catch (error) {
+                        console.error('PDF parsing error:', error);
+                        return ''; // Return empty string on PDF parse error
+                    }
 
                 case 'application/vnd.openxmlformats-officedocument.wordprocessingml.document':
-                    const result = await mammoth.extractRawText({ buffer: file.buffer });
-                    return result.value;
+                    try {
+                        const result = await mammoth.extractRawText({ buffer: file.buffer });
+                        return result.value;
+                    } catch (error) {
+                        console.error('DOCX parsing error:', error);
+                        return ''; // Return empty string on DOCX parse error
+                    }
 
                 case 'text/plain':
                     return file.buffer.toString('utf-8');
@@ -58,7 +68,7 @@ class DocumentService {
             }
         } catch (error) {
             console.error('Text extraction error:', error);
-            throw new Error(`Failed to extract text from ${file.originalname}`);
+            return ''; // Return empty string on any error
         }
     }
 
