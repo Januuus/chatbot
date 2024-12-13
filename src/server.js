@@ -28,31 +28,45 @@ const upload = multer({
 });
 
 // Middleware
-app.use(compression()); // Compress responses
+app.use(compression());
 app.use(cors({
     origin: config.server.corsOrigin,
     methods: ['GET', 'POST'],
-    allowedHeaders: ['Content-Type', 'Authorization', config.security.apiKeyHeader]
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-API-Key']
 }));
 app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public'))); // Serve static files
+app.use(express.static(path.join(__dirname, 'public')));
 
 // Rate limiting
 const limiter = rateLimit({
     windowMs: config.rateLimit.windowMs,
     max: config.rateLimit.max,
-    message: 'Too many requests from this IP, please try again later.'
+    message: 'Too many requests from this IP, please try again.'
 });
-app.use('/api/', limiter); // Apply rate limiting to API routes only
+app.use('/api/', limiter);
+
+// Debug middleware to log all requests
+app.use((req, res, next) => {
+    console.log(`${req.method} ${req.path}`);
+    console.log('Headers:', req.headers);
+    next();
+});
 
 // API Key middleware
 const validateApiKey = (req, res, next) => {
-    const apiKey = req.header(config.security.apiKeyHeader);
+    const apiKey = req.header('X-API-Key');
+    console.log('Received API Key:', apiKey);
+    console.log('Expected API Key:', config.security.requiredApiKey);
 
-    if (config.security.requiredApiKey && apiKey !== config.security.requiredApiKey) {
-        return res.status(401).json({ error: 'Invalid API key' });
+    if (!apiKey || apiKey !== config.security.requiredApiKey) {
+        console.log('API Key validation failed');
+        return res.status(401).json({
+            error: true,
+            message: 'Invalid or missing API key'
+        });
     }
 
+    console.log('API Key validation successful');
     next();
 };
 
@@ -69,35 +83,31 @@ app.get('/api/health', (req, res) => {
 // Chat endpoint
 app.post('/api/chat', validateApiKey, upload.single('image'), async (req, res) => {
     try {
+        console.log('Chat request received:', req.body);
         const query = req.body.query;
         const includeContext = req.body.includeContext !== false;
         let imageData = null;
 
-        // Handle image if provided
         if (req.file && req.file.mimetype.startsWith('image/')) {
             imageData = {
                 type: req.file.mimetype,
                 data: req.file.buffer.toString('base64')
             };
         }
-        // Handle image reference if provided
         else if (req.body.imageId) {
             try {
                 imageData = await documentService.getImageData(req.body.imageId);
             } catch (error) {
                 console.warn('Failed to get image data:', error);
-                // Continue without image if not found
             }
         }
 
-        // Validate query
         const validatedQuery = claudeService.validateQuery(query);
-
-        // Process query with optional image
         const response = await claudeService.processQuery(validatedQuery, imageData, includeContext);
 
         res.json(response);
     } catch (error) {
+        console.error('Chat endpoint error:', error);
         const errorResponse = claudeService.handleError(error);
         res.status(errorResponse.code).json(errorResponse);
     }
@@ -168,11 +178,11 @@ const startServer = async () => {
     try {
         await db.connect();
 
-        // Use Render's PORT environment variable (defaults to 10000)
         const port = process.env.PORT || 10000;
 
         app.listen(port, '0.0.0.0', () => {
             console.log(`Server running on port ${port}`);
+            console.log('Required API Key:', config.security.requiredApiKey);
         });
     } catch (error) {
         console.error('Failed to start server:', error);

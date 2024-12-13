@@ -19,7 +19,7 @@ export const config = {
         queueLimit: 0,
         enableKeepAlive: true,
         keepAliveInitialDelay: 0,
-        port: process.env.DB_PORT || 3306 // MySQL port
+        port: process.env.DB_PORT || 3306
     },
 
     // Claude API configuration
@@ -32,41 +32,39 @@ export const config = {
 
     // Document processing
     documents: {
-        maxFileSize: parseInt(process.env.MAX_FILE_SIZE) || 10 * 1024 * 1024, // 10MB default
+        maxFileSize: parseInt(process.env.MAX_FILE_SIZE) || 10 * 1024 * 1024,
         allowedTypes: [
-            // Documents
             'application/pdf',
             'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
             'text/plain',
-            // Images
             'image/jpeg',
             'image/png',
             'image/webp',
             'image/gif'
         ],
-        chunkSize: parseInt(process.env.CHUNK_SIZE) || 1000 // characters per chunk
+        chunkSize: parseInt(process.env.CHUNK_SIZE) || 1000
     },
 
     // Rate limiting
     rateLimit: {
-        windowMs: parseInt(process.env.RATE_LIMIT_WINDOW) || 15 * 60 * 1000, // 15 minutes
-        max: parseInt(process.env.RATE_LIMIT_MAX) || 100 // limit each IP to 100 requests per windowMs
+        windowMs: parseInt(process.env.RATE_LIMIT_WINDOW) || 15 * 60 * 1000,
+        max: parseInt(process.env.RATE_LIMIT_MAX) || 100
     },
 
     // Security
     security: {
         apiKeyHeader: 'X-API-Key',
-        requiredApiKey: process.env.REQUIRED_API_KEY
+        requiredApiKey: process.env.REQUIRED_API_KEY || 'd657a91c9708a863991e0eaf95a5c718' // Match the frontend API key
     }
 };
 
-// Validate required environment variables
-const requiredEnvVars = ['CLAUDE_API_KEY', 'DB_PASSWORD'];
-const missingEnvVars = requiredEnvVars.filter(envVar => !process.env[envVar]);
+// Log configuration on startup
+console.log('Configuration loaded:', {
+    nodeEnv: config.server.nodeEnv,
+    corsOrigin: config.server.corsOrigin,
+    dbHost: config.database.host,
+    apiKeyHeader: config.security.apiKeyHeader,
+    requiredApiKey: config.security.requiredApiKey
+});
 
-if (missingEnvVars.length > 0) {
-    console.warn(`Warning: Missing environment variables: ${missingEnvVars.join(', ')}`);
-}
-
-// Export configuration object
 export default config;
