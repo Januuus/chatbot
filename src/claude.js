@@ -68,13 +68,27 @@ class ClaudeService {
                 });
             }
 
+            const systemMessage = `You are a helpful AI assistant. Please format your responses with proper structure:
+
+1. Use clear paragraphs with line breaks between them
+2. For lists, use proper numbering or bullet points
+3. Start each main point on a new line
+4. Use appropriate spacing for readability
+5. Keep responses clear and well-organized
+
+When providing structured information like lesson plans or step-by-step instructions, format them with:
+- Clear headings
+- Numbered steps
+- Bullet points for sub-items
+- Line breaks between sections`;
+
             console.log('Sending request to Claude API');
             const response = await this.client.messages.create({
                 model: config.claude.model,
                 max_tokens: config.claude.maxTokens,
                 temperature: config.claude.temperature,
                 messages: messages,
-                system: "You are a helpful AI assistant. Provide clear and concise responses."
+                system: systemMessage
             });
 
             console.log('Received response from Claude API');

@@ -1,12 +1,13 @@
 <!DOCTYPE html>
 <html lang="en">
+<!-- Keep existing head and styles, just add this new style for message formatting -->
 
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Claude Chatbot</title>
     <style>
-        /* Keep existing styles unchanged */
+        /* Keep existing styles */
         body {
             font-family: Arial, sans-serif;
             max-width: 800px;
@@ -31,6 +32,22 @@
             padding: 10px;
             border-radius: 8px;
             max-width: 80%;
+            white-space: pre-wrap;
+            /* Preserve line breaks */
+            line-height: 1.5;
+            /* Better readability */
+        }
+
+        .message p {
+            margin: 0 0 10px 0;
+            /* Space between paragraphs */
+        }
+
+        .message ul,
+        .message ol {
+            margin: 0 0 10px 20px;
+            /* Proper list formatting */
+            padding-left: 15px;
         }
 
         .user-message {
@@ -143,6 +160,23 @@
             }
         });
 
+        // Format message with proper HTML structure
+        function formatMessage(text) {
+            // Split into paragraphs
+            const paragraphs = text.split('\n\n');
+
+            // Process each paragraph
+            return paragraphs.map(para => {
+                // Handle lists
+                if (para.match(/^\d+\./m) || para.match(/^-/m)) {
+                    const items = para.split('\n').map(item => `<li>${item.replace(/^\d+\.\s*|-\s*/, '')}</li>`);
+                    return `<ul>${items.join('')}</ul>`;
+                }
+                // Regular paragraph
+                return `<p>${para}</p>`;
+            }).join('');
+        }
+
         // Send message function
         async function sendMessage() {
             const messageInput = document.getElementById('message-input');
@@ -159,7 +193,6 @@
                 let requestHeaders;
 
                 if (currentFile) {
-                    // If we have a file, use FormData
                     requestData = new FormData();
                     requestData.append('query', message);
                     if (currentFile.type.startsWith('image/')) {
@@ -167,12 +200,10 @@
                     } else {
                         requestData.append('file', currentFile);
                     }
-                    // When using FormData, don't set Content-Type header
                     requestHeaders = {
                         'X-API-Key': API_KEY
                     };
                 } else {
-                    // If no file, use JSON
                     requestData = JSON.stringify({ query: message });
                     requestHeaders = {
                         'Content-Type': 'application/json',
@@ -209,7 +240,14 @@
             const chatContainer = document.getElementById('chat-container');
             const messageDiv = document.createElement('div');
             messageDiv.className = `message ${isUser ? 'user-message' : 'bot-message'}`;
-            messageDiv.textContent = message;
+
+            // Format bot messages, keep user messages as plain text
+            if (isUser) {
+                messageDiv.textContent = message;
+            } else {
+                messageDiv.innerHTML = formatMessage(message);
+            }
+
             chatContainer.appendChild(messageDiv);
             chatContainer.scrollTop = chatContainer.scrollHeight;
         }
