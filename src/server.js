@@ -4,11 +4,17 @@ import multer from 'multer';
 import rateLimit from 'express-rate-limit';
 import compression from 'compression';
 import { v4 as uuidv4 } from 'uuid';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
 import config from './config.js';
 import db from './db.js';
 import claudeService from './claude.js';
 import documentService from './documents.js';
+
+// Get directory name in ES modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Initialize express app
 const app = express();
@@ -29,6 +35,7 @@ app.use(cors({
     allowedHeaders: ['Content-Type', 'Authorization', config.security.apiKeyHeader]
 }));
 app.use(express.json());
+app.use(express.static(path.join(__dirname, 'public'))); // Serve static files
 
 // Rate limiting
 const limiter = rateLimit({
@@ -36,7 +43,7 @@ const limiter = rateLimit({
     max: config.rateLimit.max,
     message: 'Too many requests from this IP, please try again later.'
 });
-app.use(limiter);
+app.use('/api/', limiter); // Apply rate limiting to API routes only
 
 // API Key middleware
 const validateApiKey = (req, res, next) => {
@@ -48,6 +55,11 @@ const validateApiKey = (req, res, next) => {
 
     next();
 };
+
+// Root path - serve the chat interface
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
