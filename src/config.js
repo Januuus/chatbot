@@ -4,8 +4,6 @@ dotenv.config();
 export const config = {
     // Server configuration
     server: {
-        port: process.env.PORT || 3000,
-        host: process.env.HOST || 'localhost',
         nodeEnv: process.env.NODE_ENV || 'development',
         corsOrigin: process.env.CORS_ORIGIN || '*'
     },
@@ -20,7 +18,8 @@ export const config = {
         connectionLimit: 10,
         queueLimit: 0,
         enableKeepAlive: true,
-        keepAliveInitialDelay: 0
+        keepAliveInitialDelay: 0,
+        port: process.env.DB_PORT || 3306 // MySQL port
     },
 
     // Claude API configuration
@@ -31,7 +30,7 @@ export const config = {
         temperature: parseFloat(process.env.TEMPERATURE) || 0.7
     },
 
-    // Document and image processing
+    // Document processing
     documents: {
         maxFileSize: parseInt(process.env.MAX_FILE_SIZE) || 10 * 1024 * 1024, // 10MB default
         allowedTypes: [
@@ -45,13 +44,7 @@ export const config = {
             'image/webp',
             'image/gif'
         ],
-        chunkSize: parseInt(process.env.CHUNK_SIZE) || 1000, // characters per chunk
-        image: {
-            maxWidth: parseInt(process.env.MAX_IMAGE_WIDTH) || 2048,
-            maxHeight: parseInt(process.env.MAX_IMAGE_HEIGHT) || 2048,
-            quality: parseInt(process.env.IMAGE_QUALITY) || 80,
-            ocrLanguage: process.env.OCR_LANGUAGE || 'eng'
-        }
+        chunkSize: parseInt(process.env.CHUNK_SIZE) || 1000 // characters per chunk
     },
 
     // Rate limiting
@@ -72,12 +65,7 @@ const requiredEnvVars = ['CLAUDE_API_KEY', 'DB_PASSWORD'];
 const missingEnvVars = requiredEnvVars.filter(envVar => !process.env[envVar]);
 
 if (missingEnvVars.length > 0) {
-    throw new Error(`Missing required environment variables: ${missingEnvVars.join(', ')}`);
-}
-
-// Validate database configuration
-if (config.database.password === '') {
-    throw new Error('Database password is required in production environment');
+    console.warn(`Warning: Missing environment variables: ${missingEnvVars.join(', ')}`);
 }
 
 // Export configuration object

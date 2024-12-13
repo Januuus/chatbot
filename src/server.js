@@ -54,7 +54,7 @@ app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// Chat endpoint with image support
+// Chat endpoint
 app.post('/api/chat', validateApiKey, upload.single('image'), async (req, res) => {
     try {
         const query = req.body.query;
@@ -156,8 +156,11 @@ const startServer = async () => {
     try {
         await db.connect();
 
-        app.listen(config.server.port, config.server.host, () => {
-            console.log(`Server running at http://${config.server.host}:${config.server.port}`);
+        // Use Render's PORT environment variable (defaults to 10000)
+        const port = process.env.PORT || 10000;
+
+        app.listen(port, '0.0.0.0', () => {
+            console.log(`Server running on port ${port}`);
         });
     } catch (error) {
         console.error('Failed to start server:', error);
