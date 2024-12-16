@@ -18,31 +18,13 @@ const __dirname = path.dirname(__filename);
 // Initialize express app
 const app = express();
 
-// Configure multer for multiple file uploads
+// Configure multer for file uploads
 const upload = multer({
     storage: multer.memoryStorage(),
     limits: {
-        fileSize: config.documents.maxFileSize,
-        files: 10 // Maximum number of files
-    },
-    fileFilter: (req, file, cb) => {
-        console.log('Processing file:', file.originalname, file.mimetype);
-        const allowedTypes = [
-            'application/pdf',
-            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-            'text/plain',
-            'image/jpeg',
-            'image/png',
-            'image/webp',
-            'image/gif'
-        ];
-
-        if (!allowedTypes.includes(file.mimetype)) {
-            return cb(new Error(`File type ${file.mimetype} not supported`), false);
-        }
-        cb(null, true);
+        fileSize: config.documents.maxFileSize
     }
-}).any(); // Accept any field name for files
+}).any(); // Accept any files
 
 // Custom error handling for multer
 const handleUpload = (req, res, next) => {
@@ -108,7 +90,7 @@ app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// Chat endpoint with multiple file handling
+// Chat endpoint with file handling
 app.post('/api/chat', validateApiKey, handleUpload, async (req, res) => {
     try {
         console.log('Processing chat request');
@@ -124,16 +106,29 @@ app.post('/api/chat', validateApiKey, handleUpload, async (req, res) => {
         }
 
         let processedContent = '';
+        let imageData = null;
+
         if (req.files && req.files.length > 0) {
             try {
-                console.log(`Processing ${req.files.length} files`);
-
                 for (const file of req.files) {
-                    const result = await documentService.processDocument(file);
-                    const doc = await db.getDocument(result.id);
+                    console.log('Processing file:', file.originalname, file.mimetype);
 
-                    if (doc && doc.content) {
-                        processedContent += `\n\nContent from ${file.originalname}:\n${doc.content}`;
+                    if (file.mimetype.startsWith('image/')) {
+                        // Use the first image for Claude's vision capability
+                        if (!imageData) {
+                            imageData = {
+                                type: file.mimetype,
+                                data: file.buffer.toString('base64')
+                            };
+                            console.log('Image data prepared for Claude');
+                        }
+                    } else {
+                        // Process other file types
+                        const result = await documentService.processDocument(file);
+                        const doc = await db.getDocument(result.id);
+                        if (doc && doc.content) {
+                            processedContent += `\n\nContent from ${file.originalname}:\n${doc.content}`;
+                        }
                     }
                 }
             } catch (fileError) {
@@ -150,7 +145,13 @@ app.post('/api/chat', validateApiKey, handleUpload, async (req, res) => {
             `${query}\n\nContext from uploaded files:${processedContent}` :
             query;
 
-        const response = await claudeService.processQuery(fullQuery);
+        console.log('Sending to Claude:', {
+            query: fullQuery,
+            hasImage: !!imageData
+        });
+
+        // Send to Claude with image if present
+        const response = await claudeService.processQuery(fullQuery, imageData);
         res.json(response);
 
     } catch (error) {
