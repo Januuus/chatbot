@@ -1,13 +1,11 @@
 <!DOCTYPE html>
 <html lang="en">
-<!-- Keep existing head and styles, just add this new style for message formatting -->
 
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Claude Chatbot</title>
+    <title>Teacher Assistant</title>
     <style>
-        /* Keep existing styles */
         body {
             font-family: Arial, sans-serif;
             max-width: 800px;
@@ -33,20 +31,16 @@
             border-radius: 8px;
             max-width: 80%;
             white-space: pre-wrap;
-            /* Preserve line breaks */
             line-height: 1.5;
-            /* Better readability */
         }
 
         .message p {
             margin: 0 0 10px 0;
-            /* Space between paragraphs */
         }
 
         .message ul,
         .message ol {
             margin: 0 0 10px 20px;
-            /* Proper list formatting */
             padding-left: 15px;
         }
 
@@ -125,7 +119,7 @@
 
 <body>
     <div class="header">
-        <h1>Claude Chatbot</h1>
+        <h1>Teacher Assistant</h1>
         <p>Ask questions or upload documents for context</p>
     </div>
     <div id="chat-container"></div>
@@ -138,7 +132,7 @@
         <button onclick="sendMessage()">Send</button>
     </div>
     <img id="file-preview" alt="File preview">
-    <div id="loading" class="loading">Claude is thinking...</div>
+    <div id="loading" class="loading">Teacher is thinking...</div>
 
     <script>
         const API_URL = '/api';
@@ -241,7 +235,6 @@
             const messageDiv = document.createElement('div');
             messageDiv.className = `message ${isUser ? 'user-message' : 'bot-message'}`;
 
-            // Format bot messages, keep user messages as plain text
             if (isUser) {
                 messageDiv.textContent = message;
             } else {
