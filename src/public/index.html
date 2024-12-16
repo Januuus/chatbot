@@ -58,8 +58,13 @@
 
         #input-container {
             display: flex;
+            flex-direction: column;
             gap: 10px;
-            margin-top: 20px;
+        }
+
+        #message-row {
+            display: flex;
+            gap: 10px;
         }
 
         #message-input {
@@ -85,12 +90,68 @@
             background-color: #0056b3;
         }
 
-        #file-preview {
-            max-width: 200px;
-            max-height: 200px;
-            margin: 10px 0;
+        #files-preview {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            padding: 10px 0;
+        }
+
+        .file-preview {
+            position: relative;
+            width: 80px;
+            height: 80px;
+            border: 1px solid #ddd;
             border-radius: 4px;
-            display: none;
+            overflow: hidden;
+            background: #fff;
+        }
+
+        .file-preview img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .file-preview .file-icon {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            color: #666;
+        }
+
+        .file-preview .remove-file {
+            position: absolute;
+            top: 2px;
+            right: 2px;
+            width: 20px;
+            height: 20px;
+            background: rgba(255, 0, 0, 0.8);
+            color: white;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            font-size: 14px;
+            line-height: 1;
+        }
+
+        .file-preview .file-name {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: rgba(0, 0, 0, 0.5);
+            color: white;
+            font-size: 10px;
+            padding: 2px 4px;
+            text-overflow: ellipsis;
+            overflow: hidden;
+            white-space: nowrap;
         }
 
         .loading {
@@ -124,49 +185,88 @@
     </div>
     <div id="chat-container"></div>
     <div id="input-container">
-        <input type="file" id="file-input" accept="image/*,.pdf,.docx,.txt" style="display: none">
-        <button onclick="document.getElementById('file-input').click()">
-            📎 Attach
-        </button>
-        <input type="text" id="message-input" placeholder="Type your message...">
-        <button onclick="sendMessage()">Send</button>
+        <div id="files-preview"></div>
+        <div id="message-row">
+            <input type="file" id="file-input" accept="image/*,.pdf,.docx,.txt" multiple style="display: none">
+            <button onclick="document.getElementById('file-input').click()">
+                📎 Attach
+            </button>
+            <input type="text" id="message-input" placeholder="Type your message...">
+            <button onclick="sendMessage()">Send</button>
+        </div>
     </div>
-    <img id="file-preview" alt="File preview">
     <div id="loading" class="loading">Teacher is thinking...</div>
 
     <script>
         const API_URL = '/api';
         const API_KEY = 'd657a91c9708a863991e0eaf95a5c718';
 
-        let currentFile = null;
+        let currentFiles = [];
 
         // File input handling
         document.getElementById('file-input').addEventListener('change', (e) => {
-            const file = e.target.files[0];
-            if (!file) return;
+            const files = Array.from(e.target.files || []);
+            if (!files.length) return;
 
-            currentFile = file;
+            files.forEach(file => {
+                currentFiles.push(file);
+                addFilePreview(file);
+            });
+
+            // Clear input
+            e.target.value = '';
+        });
+
+        function addFilePreview(file) {
+            const filesPreview = document.getElementById('files-preview');
+            const previewDiv = document.createElement('div');
+            previewDiv.className = 'file-preview';
+
+            // Create remove button
+            const removeButton = document.createElement('div');
+            removeButton.className = 'remove-file';
+            removeButton.innerHTML = '×';
+            removeButton.onclick = () => removeFile(file, previewDiv);
+
+            // Create file name label
+            const fileNameDiv = document.createElement('div');
+            fileNameDiv.className = 'file-name';
+            fileNameDiv.textContent = file.name;
 
             if (file.type.startsWith('image/')) {
-                const preview = document.getElementById('file-preview');
-                preview.style.display = 'block';
-                preview.src = URL.createObjectURL(file);
+                // Image preview
+                const img = document.createElement('img');
+                img.src = URL.createObjectURL(file);
+                previewDiv.appendChild(img);
+            } else {
+                // File icon
+                const iconDiv = document.createElement('div');
+                iconDiv.className = 'file-icon';
+                iconDiv.textContent = file.type.includes('pdf') ? '📄' : '📝';
+                previewDiv.appendChild(iconDiv);
             }
-        });
+
+            previewDiv.appendChild(removeButton);
+            previewDiv.appendChild(fileNameDiv);
+            filesPreview.appendChild(previewDiv);
+        }
+
+        function removeFile(file, previewElement) {
+            const index = currentFiles.indexOf(file);
+            if (index > -1) {
+                currentFiles.splice(index, 1);
+            }
+            previewElement.remove();
+        }
 
         // Format message with proper HTML structure
         function formatMessage(text) {
-            // Split into paragraphs
             const paragraphs = text.split('\n\n');
-
-            // Process each paragraph
             return paragraphs.map(para => {
-                // Handle lists
                 if (para.match(/^\d+\./m) || para.match(/^-/m)) {
                     const items = para.split('\n').map(item => `<li>${item.replace(/^\d+\.\s*|-\s*/, '')}</li>`);
                     return `<ul>${items.join('')}</ul>`;
                 }
-                // Regular paragraph
                 return `<p>${para}</p>`;
             }).join('');
         }
@@ -176,39 +276,31 @@
             const messageInput = document.getElementById('message-input');
             const message = messageInput.value.trim();
 
-            if (!message && !currentFile) return;
+            if (!message && !currentFiles.length) return;
 
             addMessage(message, true);
             messageInput.value = '';
             document.getElementById('loading').style.display = 'block';
 
             try {
-                let requestData;
-                let requestHeaders;
+                const formData = new FormData();
+                formData.append('query', message);
 
-                if (currentFile) {
-                    requestData = new FormData();
-                    requestData.append('query', message);
-                    if (currentFile.type.startsWith('image/')) {
-                        requestData.append('image', currentFile);
+                // Append all files
+                currentFiles.forEach((file, index) => {
+                    if (file.type.startsWith('image/')) {
+                        formData.append(`image_${index}`, file);
                     } else {
-                        requestData.append('file', currentFile);
+                        formData.append(`file_${index}`, file);
                     }
-                    requestHeaders = {
-                        'X-API-Key': API_KEY
-                    };
-                } else {
-                    requestData = JSON.stringify({ query: message });
-                    requestHeaders = {
-                        'Content-Type': 'application/json',
-                        'X-API-Key': API_KEY
-                    };
-                }
+                });
 
                 const response = await fetch(`${API_URL}/chat`, {
                     method: 'POST',
-                    headers: requestHeaders,
-                    body: requestData
+                    headers: {
+                        'X-API-Key': API_KEY
+                    },
+                    body: formData
                 });
 
                 if (!response.ok) {
@@ -219,8 +311,9 @@
                 const data = await response.json();
                 addMessage(data.response, false);
 
-                document.getElementById('file-preview').style.display = 'none';
-                currentFile = null;
+                // Clear files after successful send
+                currentFiles = [];
+                document.getElementById('files-preview').innerHTML = '';
 
             } catch (error) {
                 console.error('Error:', error);

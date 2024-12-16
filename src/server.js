@@ -18,11 +18,12 @@ const __dirname = path.dirname(__filename);
 // Initialize express app
 const app = express();
 
-// Configure multer for file uploads with error handling
+// Configure multer for multiple file uploads
 const upload = multer({
     storage: multer.memoryStorage(),
     limits: {
-        fileSize: config.documents.maxFileSize
+        fileSize: config.documents.maxFileSize,
+        files: 10 // Maximum number of files
     },
     fileFilter: (req, file, cb) => {
         console.log('Processing file:', file.originalname, file.mimetype);
@@ -41,7 +42,7 @@ const upload = multer({
         }
         cb(null, true);
     }
-}).single('file');
+}).any(); // Accept any field name for files
 
 // Custom error handling for multer
 const handleUpload = (req, res, next) => {
@@ -107,12 +108,14 @@ app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// Chat endpoint with file handling
+// Chat endpoint with multiple file handling
 app.post('/api/chat', validateApiKey, handleUpload, async (req, res) => {
     try {
         console.log('Processing chat request');
-        const query = req.body.query;
+        console.log('Files:', req.files);
+        console.log('Body:', req.body);
 
+        const query = req.body.query;
         if (!query) {
             return res.status(400).json({
                 error: true,
@@ -120,17 +123,18 @@ app.post('/api/chat', validateApiKey, handleUpload, async (req, res) => {
             });
         }
 
-        let fileContent = '';
-        if (req.file) {
+        let processedContent = '';
+        if (req.files && req.files.length > 0) {
             try {
-                console.log('Processing uploaded file');
-                const result = await documentService.processDocument(req.file);
-                fileContent = `Content from uploaded file "${req.file.originalname}":\n\n`;
+                console.log(`Processing ${req.files.length} files`);
 
-                // Get document content from database
-                const doc = await db.getDocument(result.id);
-                if (doc && doc.content) {
-                    fileContent += doc.content;
+                for (const file of req.files) {
+                    const result = await documentService.processDocument(file);
+                    const doc = await db.getDocument(result.id);
+
+                    if (doc && doc.content) {
+                        processedContent += `\n\nContent from ${file.originalname}:\n${doc.content}`;
+                    }
                 }
             } catch (fileError) {
                 console.error('File processing error:', fileError);
@@ -141,8 +145,10 @@ app.post('/api/chat', validateApiKey, handleUpload, async (req, res) => {
             }
         }
 
-        // Combine query with file content
-        const fullQuery = fileContent ? `${query}\n\nContext from uploaded file:\n${fileContent}` : query;
+        // Combine query with processed content
+        const fullQuery = processedContent ?
+            `${query}\n\nContext from uploaded files:${processedContent}` :
+            query;
 
         const response = await claudeService.processQuery(fullQuery);
         res.json(response);
@@ -159,17 +165,20 @@ app.post('/api/chat', validateApiKey, handleUpload, async (req, res) => {
 // Document upload endpoint
 app.post('/api/documents', validateApiKey, handleUpload, async (req, res) => {
     try {
-        if (!req.file) {
-            return res.status(400).json({ error: 'No file uploaded' });
+        if (!req.files || req.files.length === 0) {
+            return res.status(400).json({ error: 'No files uploaded' });
         }
 
-        const result = await documentService.processDocument(req.file);
-        res.json(result);
+        const results = await Promise.all(
+            req.files.map(file => documentService.processDocument(file))
+        );
+
+        res.json(results);
     } catch (error) {
         console.error('Document upload error:', error);
         res.status(500).json({
             error: true,
-            message: `Error uploading document: ${error.message}`
+            message: `Error uploading documents: ${error.message}`
         });
     }
 });
