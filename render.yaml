@@ -2,14 +2,10 @@ services:
   - type: web
     name: ielts-teacher-assistant
     env: node
-    buildCommand: npm install
-    startCommand: |
-      echo "Initializing database..."
-      node init-db.js
-      echo "Processing training documents..."
-      node process-training.js
-      echo "Starting server..."
-      node src/server.js
+    buildCommand: |
+      npm install
+      chmod +x start.sh
+    startCommand: ./start.sh
     envVars:
       - key: NODE_ENV
         value: production
