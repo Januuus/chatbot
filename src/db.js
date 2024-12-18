@@ -4,27 +4,34 @@ import config from './config.js';
 class Database {
     constructor() {
         this.pool = null;
+        this.retryCount = 0;
+        this.maxRetries = 5;
+        this.retryDelay = 5000; // 5 seconds
     }
 
     async connect() {
         try {
-            this.pool = mysql.createPool(config.database);
-
-            // Test connection
-            const connection = await this.pool.getConnection();
-            console.log('Database connection established successfully');
-            connection.release();
-
+            if (!this.pool) {
+                this.pool = mysql.createPool(config.database);
+                console.log('Database connection pool established successfully');
+            }
             return this.pool;
         } catch (error) {
             console.error('Failed to establish database connection:', error);
+            if (this.retryCount < this.maxRetries) {
+                this.retryCount++;
+                console.log(`Retrying connection in ${this.retryDelay / 1000} seconds... (Attempt ${this.retryCount}/${this.maxRetries})`);
+                await new Promise(resolve => setTimeout(resolve, this.retryDelay));
+                return this.connect();
+            }
             throw error;
         }
     }
 
     async query(sql, params = []) {
+        const pool = await this.connect();
         try {
-            const [results] = await this.pool.execute(sql, params);
+            const [results] = await pool.execute(sql, params);
             return results;
         } catch (error) {
             console.error('Database query error:', error);
@@ -32,96 +39,76 @@ class Database {
         }
     }
 
-    // Document operations
-    async saveDocument(id, name, content, type, size) {
+    async saveConversation(id, query, response, hasImage, outputTokens) {
         const sql = `
-            INSERT INTO documents (id, name, content, type, size)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO chat_history (id, user_message, bot_response, metadata)
+            VALUES (?, ?, ?, ?)
         `;
-        return this.query(sql, [id, name, content, type, size]);
-    }
-
-    async saveDocumentChunks(documentId, chunks) {
-        const sql = `
-            INSERT INTO document_chunks (id, document_id, content, chunk_index)
-            VALUES (UUID(), ?, ?, ?)
-        `;
-
-        const promises = chunks.map((chunk, index) =>
-            this.query(sql, [documentId, chunk, index])
-        );
-
-        return Promise.all(promises);
-    }
-
-    async getDocument(id) {
-        const sql = 'SELECT * FROM documents WHERE id = ?';
-        const results = await this.query(sql, [id]);
-        return results[0];
-    }
-
-    async searchDocuments(searchTerm) {
-        const sql = `
-            SELECT id, name, type, created_at 
-            FROM documents 
-            WHERE name LIKE ? OR content LIKE ?
-            ORDER BY created_at DESC
-        `;
-        const searchPattern = `%${searchTerm}%`;
-        return this.query(sql, [searchPattern, searchPattern]);
-    }
-
-    // Conversation operations
-    async saveConversation(id, query, response, documentRefs, tokensUsed) {
-        const sql = `
-            INSERT INTO conversations (id, query, response, document_refs, tokens_used)
-            VALUES (?, ?, ?, ?, ?)
-        `;
-        return this.query(sql, [id, query, response, documentRefs, tokensUsed]);
+        const metadata = JSON.stringify({
+            hasImage,
+            outputTokens,
+            timestamp: new Date().toISOString()
+        });
+        return this.query(sql, [id, query, response, metadata]);
     }
 
     async getConversationHistory(limit = 10) {
         const sql = `
-            SELECT * FROM conversations 
-            ORDER BY created_at DESC 
+            SELECT * FROM chat_history
+            ORDER BY created_at DESC
             LIMIT ?
         `;
         return this.query(sql, [limit]);
     }
 
-    // Utility methods
-    async getRelevantDocumentChunks(query, limit = 5) {
-        // Simple relevance search based on LIKE
-        // In a production environment, consider using full-text search or more sophisticated matching
+    async saveDocument(id, filename, content, mimeType, fileSize) {
         const sql = `
-            SELECT dc.*, d.name as document_name
-            FROM document_chunks dc
-            JOIN documents d ON dc.document_id = d.id
-            WHERE dc.content LIKE ?
+            INSERT INTO documents (id, filename, content, mime_type, file_size)
+            VALUES (?, ?, ?, ?, ?)
+            ON DUPLICATE KEY UPDATE
+            content = VALUES(content),
+            mime_type = VALUES(mime_type),
+            file_size = VALUES(file_size),
+            updated_at = CURRENT_TIMESTAMP
+        `;
+        return this.query(sql, [id, filename, content, mimeType, fileSize]);
+    }
+
+    async searchDocuments(searchTerm, limit = 10) {
+        const sql = `
+            SELECT id, filename, mime_type, file_size, created_at
+            FROM documents
+            WHERE MATCH(content) AGAINST(? IN NATURAL LANGUAGE MODE)
             LIMIT ?
         `;
-        const searchPattern = `%${query}%`;
-        return this.query(sql, [searchPattern, limit]);
+        return this.query(sql, [searchTerm, limit]);
     }
 
     async cleanup() {
         if (this.pool) {
-            await this.pool.end();
-            console.log('Database connection closed');
+            try {
+                await this.pool.end();
+                console.log('Database connection pool closed');
+            } catch (error) {
+                console.error('Error closing database connection pool:', error);
+            }
+            this.pool = null;
         }
     }
 }
 
-// Create and export a single instance
+// Create a single instance
 const db = new Database();
 
 // Handle cleanup on process termination
 process.on('SIGINT', async () => {
+    console.log('Received SIGINT. Cleaning up...');
     await db.cleanup();
     process.exit(0);
 });
 
 process.on('SIGTERM', async () => {
+    console.log('Received SIGTERM. Cleaning up...');
     await db.cleanup();
     process.exit(0);
 });

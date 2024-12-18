@@ -15,11 +15,18 @@ export const config = {
         password: process.env.DB_PASSWORD || '',
         database: process.env.DB_NAME || 'claude_chatbot',
         waitForConnections: true,
-        connectionLimit: 10,
+        connectionLimit: 5, // Reduced from 10
         queueLimit: 0,
         enableKeepAlive: true,
         keepAliveInitialDelay: 0,
-        port: process.env.DB_PORT || 3306
+        port: process.env.DB_PORT || 3306,
+        // Add connection pool settings
+        pool: {
+            min: 0,
+            max: 5,
+            idle: 10000,
+            acquire: 30000
+        }
     },
 
     // Claude API configuration
