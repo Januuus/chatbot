@@ -4,19 +4,15 @@ services:
     env: node
     buildCommand: npm install
     startCommand: |
-      # Wait for database to be ready
-      ./wait-for-db.sh
-      # Process training documents
       echo "Processing training documents..."
-      node process-training.js
-      # Start the server
+      node process-training.js || true
       echo "Starting server..."
       node src/server.js
     envVars:
       - key: NODE_ENV
         value: production
       - key: PORT
-        value: 10000
+        value: 3000
       - key: DB_HOST
         sync: false # Will be set in Render dashboard
       - key: DB_USER
