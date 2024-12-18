@@ -4,8 +4,10 @@ services:
     env: node
     buildCommand: npm install
     startCommand: |
+      echo "Initializing database..."
+      node init-db.js
       echo "Processing training documents..."
-      node process-training.js || true
+      node process-training.js
       echo "Starting server..."
       node src/server.js
     envVars:
@@ -20,13 +22,25 @@ services:
       - key: DB_PASSWORD
         sync: false
       - key: DB_NAME
-        value: claude_chatbot
+        value: u640211876_chatbot
       - key: CLAUDE_API_KEY
         sync: false
       - key: REQUIRED_API_KEY
         sync: false
       - key: MAX_FILE_SIZE
         value: "209715200" # 200MB in bytes
+      - key: DB_PORT
+        value: "3306"
+      - key: MAX_TOKENS
+        value: "4096"
+      - key: TEMPERATURE
+        value: "0.7"
+      - key: RATE_LIMIT_WINDOW
+        value: "900000"
+      - key: RATE_LIMIT_MAX
+        value: "100"
+      - key: CORS_ORIGIN
+        value: "https://midnightblue-rabbit-284995.hostingersite.com"
 
 databases:
   - name: ielts-assistant-db
