@@ -1,21 +1,15 @@
 import { v4 as uuidv4 } from 'uuid';
-import pdfParse from 'pdf-parse/lib/pdf-parse.js';
-import mammoth from 'mammoth';
-import config from './config.js';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import db from './db.js';
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 class DocumentService {
-    /**
-     * Validates file before processing
-     */
-    validateFile(file) {
-        console.log('Validating file:', file.originalname, file.mimetype, file.size);
-
-        if (!file) {
-            throw new Error('No file provided');
-        }
-
-        const allowedTypes = [
+    constructor() {
+        this.allowedTypes = [
             'application/pdf',
             'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
             'text/plain',
@@ -24,148 +18,44 @@ class DocumentService {
             'image/webp',
             'image/gif'
         ];
-
-        if (!allowedTypes.includes(file.mimetype)) {
-            throw new Error(`File type ${file.mimetype} not supported`);
-        }
-
-        if (file.size > config.documents.maxFileSize) {
-            throw new Error(`File size exceeds limit of ${config.documents.maxFileSize / 1024 / 1024}MB`);
-        }
-
-        return true;
     }
 
-    /**
-     * Extracts text from documents
-     */
-    async extractText(file) {
-        console.log('Extracting text from:', file.originalname, file.mimetype);
-
-        try {
-            switch (file.mimetype) {
-                case 'application/pdf':
-                    try {
-                        // Add options to handle problematic PDFs
-                        const options = {
-                            max: 0, // no page limit
-                            version: 'v2.0.550'
-                        };
-                        const pdfData = await pdfParse(file.buffer, options);
-                        console.log('PDF processed successfully');
-                        return pdfData.text || 'No text content found in PDF';
-                    } catch (pdfError) {
-                        console.error('PDF processing error:', pdfError);
-                        throw new Error(`Failed to process PDF: ${pdfError.message}`);
-                    }
-
-                case 'application/vnd.openxmlformats-officedocument.wordprocessingml.document':
-                    try {
-                        const result = await mammoth.extractRawText({ buffer: file.buffer });
-                        return result.value || 'No text content found in DOCX';
-                    } catch (docxError) {
-                        console.error('DOCX processing error:', docxError);
-                        throw new Error(`Failed to process DOCX: ${docxError.message}`);
-                    }
-
-                case 'text/plain':
-                    return file.buffer.toString('utf-8');
-
-                default:
-                    return ''; // For images, we don't extract text
-            }
-        } catch (error) {
-            console.error('Text extraction error:', error);
-            throw new Error(`Failed to extract text: ${error.message}`);
-        }
-    }
-
-    /**
-     * Splits text into manageable chunks
-     */
-    createChunks(text, chunkSize = config.documents.chunkSize) {
-        if (!text) return [];
-
-        try {
-            const chunks = [];
-            const sentences = text.match(/[^.!?]+[.!?]+/g) || [text];
-            let currentChunk = '';
-
-            for (const sentence of sentences) {
-                if ((currentChunk + sentence).length <= chunkSize) {
-                    currentChunk += sentence;
-                } else {
-                    if (currentChunk) chunks.push(currentChunk.trim());
-                    currentChunk = sentence;
-                }
-            }
-
-            if (currentChunk) chunks.push(currentChunk.trim());
-            return chunks;
-        } catch (error) {
-            console.error('Error creating chunks:', error);
-            return [text]; // Return full text as single chunk if chunking fails
-        }
-    }
-
-    /**
-     * Processes and stores a document
-     */
     async processDocument(file) {
-        console.log('Processing document:', file.originalname);
-
         try {
-            this.validateFile(file);
+            console.log(`Processing document: ${file.originalname}`);
 
-            const documentId = uuidv4();
-            const isImage = file.mimetype.startsWith('image/');
-
-            // For images, store the base64 data
-            const base64Data = isImage ? file.buffer.toString('base64') : null;
-
-            // For documents, extract text
-            let text = '';
-            if (!isImage) {
-                try {
-                    text = await this.extractText(file);
-                    if (!text) {
-                        throw new Error('No text content could be extracted');
-                    }
-                } catch (extractError) {
-                    console.error('Text extraction failed:', extractError);
-                    throw new Error(`Failed to extract text: ${extractError.message}`);
-                }
+            // Validate file type
+            if (!this.allowedTypes.includes(file.mimetype)) {
+                throw new Error(`Unsupported file type: ${file.mimetype}`);
             }
 
-            const chunks = this.createChunks(text);
+            // Generate unique ID
+            const documentId = uuidv4();
+
+            // Extract text content based on file type
+            let content = '';
+            if (file.mimetype === 'text/plain') {
+                content = file.buffer.toString('utf8');
+            } else if (file.mimetype === 'application/pdf') {
+                content = await this.extractTextFromPDF(file.buffer);
+            } else if (file.mimetype.startsWith('image/')) {
+                // For images, we'll just store metadata
+                content = `Image file: ${file.originalname}`;
+            }
 
             // Save to database
-            try {
-                await db.saveDocument(
-                    documentId,
-                    file.originalname,
-                    text,
-                    file.mimetype,
-                    file.size,
-                    isImage ? base64Data : null
-                );
-
-                // Save chunks for documents
-                if (!isImage && chunks.length > 0) {
-                    await db.saveDocumentChunks(documentId, chunks);
-                }
-            } catch (dbError) {
-                console.error('Database error:', dbError);
-                throw new Error(`Failed to save to database: ${dbError.message}`);
-            }
+            await db.saveDocument(
+                documentId,
+                file.originalname || 'unnamed',
+                content || '',
+                file.mimetype || 'application/octet-stream',
+                file.size || 0
+            );
 
             return {
                 id: documentId,
-                name: file.originalname,
-                type: file.mimetype,
-                size: file.size,
-                chunks: chunks.length,
-                isImage
+                filename: file.originalname,
+                status: 'success'
             };
 
         } catch (error) {
@@ -174,40 +64,43 @@ class DocumentService {
         }
     }
 
-    /**
-     * Gets image data for Claude processing
-     */
-    async getImageData(id) {
+    async extractTextFromPDF(buffer) {
         try {
-            const document = await db.getDocument(id);
-            if (!document || !document.type.startsWith('image/')) {
-                throw new Error('Image not found or invalid type');
-            }
-
-            return {
-                type: document.type,
-                data: document.original_content
-            };
+            // Simple text extraction for now
+            // You might want to use a proper PDF parsing library
+            return buffer.toString('utf8');
         } catch (error) {
-            console.error('Get image error:', error);
-            throw new Error(`Failed to retrieve image: ${error.message}`);
+            console.error('PDF extraction error:', error);
+            return '';
         }
     }
 
-    /**
-     * Handles errors in a consistent way
-     */
-    handleError(error) {
-        console.error('Document Service Error:', error);
+    async searchDocuments(searchTerm, limit = 10) {
+        try {
+            if (!searchTerm) {
+                throw new Error('Search term is required');
+            }
 
-        return {
-            error: true,
-            message: error.message || 'An unexpected error occurred',
-            code: error.status || 500
-        };
+            return await db.searchDocuments(searchTerm, limit);
+        } catch (error) {
+            console.error('Document search error:', error);
+            throw error;
+        }
+    }
+
+    async getDocument(id) {
+        try {
+            if (!id) {
+                throw new Error('Document ID is required');
+            }
+
+            return await db.getDocument(id);
+        } catch (error) {
+            console.error('Get document error:', error);
+            throw error;
+        }
     }
 }
 
-// Create and export a single instance
 const documentService = new DocumentService();
 export default documentService;
