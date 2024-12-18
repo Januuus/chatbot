@@ -16,20 +16,10 @@ import documentService from './documents.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Initialize database and process training documents
-async function initializeDatabase() {
-    console.log('Initializing database...');
+// Process training documents
+async function processTrainingDocuments() {
+    console.log('Processing training documents...');
     try {
-        // Read schema file
-        const schemaPath = path.join(__dirname, '..', 'database', 'schema.sql');
-        const schema = fs.readFileSync(schemaPath, 'utf8');
-
-        // Execute schema
-        await db.query(schema);
-        console.log('Database initialized successfully');
-
-        // Process training documents
-        console.log('Processing training documents...');
         const trainingPath = path.join(__dirname, '..', 'training-docs');
         if (fs.existsSync(trainingPath)) {
             const files = fs.readdirSync(trainingPath);
@@ -42,12 +32,13 @@ async function initializeDatabase() {
                     mimetype: file.endsWith('.pdf') ? 'application/pdf' : 'text/plain'
                 };
                 await documentService.processDocument(fileObj);
+                console.log(`Processed: ${file}`);
             }
             console.log('Training documents processed successfully');
         }
     } catch (error) {
-        console.error('Failed to initialize:', error);
-        // Continue even if initialization fails
+        console.error('Failed to process training documents:', error);
+        // Continue even if processing fails
     }
 }
 
@@ -262,10 +253,11 @@ app.use((err, req, res, next) => {
 // Initialize database connection and start server
 const startServer = async () => {
     try {
+        // Connect to database (this will also initialize schema)
         await db.connect();
 
-        // Initialize database and process training documents
-        await initializeDatabase();
+        // Process training documents
+        await processTrainingDocuments();
 
         const port = process.env.PORT || 3000;
 

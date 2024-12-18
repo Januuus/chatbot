@@ -1,5 +1,11 @@
 import mysql from 'mysql2/promise';
 import config from './config.js';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 class Database {
     constructor() {
@@ -9,10 +15,46 @@ class Database {
         this.retryDelay = 5000; // 5 seconds
     }
 
+    async initialize() {
+        try {
+            // Create a temporary connection without database
+            const connection = await mysql.createConnection({
+                host: config.database.host,
+                user: config.database.user,
+                password: config.database.password,
+                port: config.database.port,
+                multipleStatements: true
+            });
+
+            // Read and execute schema
+            const schemaPath = path.join(__dirname, '..', 'database', 'schema.sql');
+            const schema = fs.readFileSync(schemaPath, 'utf8');
+            await connection.query(schema);
+            console.log('Database schema initialized successfully');
+
+            // Close temporary connection
+            await connection.end();
+
+        } catch (error) {
+            console.error('Failed to initialize database schema:', error);
+            throw error;
+        }
+    }
+
     async connect() {
         try {
             if (!this.pool) {
-                this.pool = mysql.createPool(config.database);
+                // First try to initialize the schema
+                await this.initialize();
+
+                // Then create the connection pool
+                this.pool = mysql.createPool({
+                    ...config.database,
+                    waitForConnections: true,
+                    connectionLimit: 5,
+                    queueLimit: 0
+                });
+
                 console.log('Database connection pool established successfully');
             }
             return this.pool;
@@ -72,6 +114,15 @@ class Database {
             updated_at = CURRENT_TIMESTAMP
         `;
         return this.query(sql, [id, filename, content, mimeType, fileSize]);
+    }
+
+    async getDocument(id) {
+        const sql = `
+            SELECT * FROM documents
+            WHERE id = ?
+        `;
+        const results = await this.query(sql, [id]);
+        return results[0];
     }
 
     async searchDocuments(searchTerm, limit = 10) {
