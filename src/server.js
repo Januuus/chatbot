@@ -6,6 +6,7 @@ import compression from 'compression';
 import { v4 as uuidv4 } from 'uuid';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import fs from 'fs';
 
 import config from './config.js';
 import db from './db.js';
@@ -14,6 +15,41 @@ import documentService from './documents.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// Initialize database and process training documents
+async function initializeDatabase() {
+    console.log('Initializing database...');
+    try {
+        // Read schema file
+        const schemaPath = path.join(__dirname, '..', 'database', 'schema.sql');
+        const schema = fs.readFileSync(schemaPath, 'utf8');
+
+        // Execute schema
+        await db.query(schema);
+        console.log('Database initialized successfully');
+
+        // Process training documents
+        console.log('Processing training documents...');
+        const trainingPath = path.join(__dirname, '..', 'training-docs');
+        if (fs.existsSync(trainingPath)) {
+            const files = fs.readdirSync(trainingPath);
+            for (const file of files) {
+                const filePath = path.join(trainingPath, file);
+                const fileBuffer = fs.readFileSync(filePath);
+                const fileObj = {
+                    originalname: file,
+                    buffer: fileBuffer,
+                    mimetype: file.endsWith('.pdf') ? 'application/pdf' : 'text/plain'
+                };
+                await documentService.processDocument(fileObj);
+            }
+            console.log('Training documents processed successfully');
+        }
+    } catch (error) {
+        console.error('Failed to initialize:', error);
+        // Continue even if initialization fails
+    }
+}
 
 // Initialize express app
 const app = express();
@@ -228,7 +264,10 @@ const startServer = async () => {
     try {
         await db.connect();
 
-        const port = process.env.PORT || 10000;
+        // Initialize database and process training documents
+        await initializeDatabase();
+
+        const port = process.env.PORT || 3000;
 
         app.listen(port, '0.0.0.0', () => {
             console.log(`Server running on port ${port}`);
