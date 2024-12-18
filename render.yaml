@@ -1,18 +1,38 @@
-# render.yaml
 services:
   - type: web
-    name: claude-chatbot
+    name: ielts-teacher-assistant
     env: node
     buildCommand: npm install
-    startCommand: node src/server.js
+    startCommand: |
+      # Wait for database to be ready
+      ./wait-for-db.sh
+      # Process training documents
+      echo "Processing training documents..."
+      node process-training.js
+      # Start the server
+      echo "Starting server..."
+      node src/server.js
     envVars:
       - key: NODE_ENV
         value: production
       - key: PORT
-        value: 3000
-      - key: CORS_ORIGIN
-        value: https://your-hostinger-domain.com # Update this
+        value: 10000
+      - key: DB_HOST
+        sync: false # Will be set in Render dashboard
+      - key: DB_USER
+        sync: false
+      - key: DB_PASSWORD
+        sync: false
+      - key: DB_NAME
+        value: claude_chatbot
       - key: CLAUDE_API_KEY
-        sync: false # Will be set manually in Render dashboard
+        sync: false
       - key: REQUIRED_API_KEY
-        sync: false # Will be set manually in Render dashboard
+        sync: false
+      - key: MAX_FILE_SIZE
+        value: "209715200" # 200MB in bytes
+
+databases:
+  - name: ielts-assistant-db
+    type: mysql
+    ipAllowList: []
