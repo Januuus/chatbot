@@ -15,6 +15,9 @@ CREATE TABLE IF NOT EXISTS documents (
     metadata JSON
 );
 
+-- Drop existing index if it exists
+DROP INDEX IF EXISTS idx_document_content ON documents;
+
 -- Create index for faster text search
 CREATE FULLTEXT INDEX idx_document_content ON documents(content);
 
