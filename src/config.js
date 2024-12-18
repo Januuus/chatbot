@@ -54,17 +54,24 @@ export const config = {
     // Security
     security: {
         apiKeyHeader: 'X-API-Key',
-        requiredApiKey: process.env.REQUIRED_API_KEY || 'd657a91c9708a863991e0eaf95a5c718' // Match the frontend API key
+        requiredApiKey: process.env.REQUIRED_API_KEY
     }
 };
 
-// Log configuration on startup
+// Validate required environment variables
+const requiredEnvVars = ['CLAUDE_API_KEY', 'REQUIRED_API_KEY'];
+const missingEnvVars = requiredEnvVars.filter(envVar => !process.env[envVar]);
+
+if (missingEnvVars.length > 0) {
+    throw new Error(`Missing required environment variables: ${missingEnvVars.join(', ')}`);
+}
+
+// Log non-sensitive configuration on startup
 console.log('Configuration loaded:', {
     nodeEnv: config.server.nodeEnv,
     corsOrigin: config.server.corsOrigin,
     dbHost: config.database.host,
-    apiKeyHeader: config.security.apiKeyHeader,
-    requiredApiKey: config.security.requiredApiKey
+    apiKeyHeader: config.security.apiKeyHeader
 });
 
 export default config;
