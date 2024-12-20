@@ -2,17 +2,11 @@ import { v4 as uuidv4 } from 'uuid';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.js';
+import pdfParse from 'pdf-parse-fork';
 import db from './db.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-
-// Configure PDF.js for Node environment
-const pdfjsWorker = path.join(process.cwd(), 'node_modules/pdfjs-dist/legacy/build/pdf.worker.js');
-if (typeof window === 'undefined') {
-    pdfjs.GlobalWorkerOptions.workerSrc = pdfjsWorker;
-}
 
 class DocumentService {
     constructor() {
@@ -46,8 +40,14 @@ class DocumentService {
             if (file.mimetype === 'text/plain') {
                 content = file.buffer.toString('utf8');
             } else if (file.mimetype === 'application/pdf') {
-                content = await this.extractTextFromPDF(file.buffer);
-                console.log(`Extracted ${content.length} characters from PDF`);
+                try {
+                    const pdfData = await pdfParse(file.buffer);
+                    content = pdfData.text;
+                    console.log(`Extracted ${content.length} characters from PDF`);
+                } catch (pdfError) {
+                    console.error('PDF parsing error:', pdfError);
+                    content = `Failed to extract text from PDF: ${file.originalname}`;
+                }
             } else if (file.mimetype.startsWith('image/')) {
                 content = `Image file: ${file.originalname}`;
             }
@@ -112,29 +112,6 @@ class DocumentService {
         } catch (error) {
             console.error('Document processing error:', error);
             throw new Error(`Failed to process document: ${error.message}`);
-        }
-    }
-
-    async extractTextFromPDF(buffer) {
-        try {
-            // Load the PDF document
-            const data = new Uint8Array(buffer);
-            const loadingTask = pdfjs.getDocument({ data });
-            const pdf = await loadingTask.promise;
-
-            let text = '';
-            // Extract text from each page
-            for (let i = 1; i <= pdf.numPages; i++) {
-                const page = await pdf.getPage(i);
-                const content = await page.getTextContent();
-                const strings = content.items.map(item => item.str);
-                text += strings.join(' ') + '\n';
-            }
-
-            return text;
-        } catch (error) {
-            console.error('PDF extraction error:', error);
-            throw error; // Throw error to handle it in processDocument
         }
     }
 
