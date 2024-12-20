@@ -2,7 +2,10 @@ services:
   - type: web
     name: teacher-chatbot
     env: node
-    buildCommand: npm install
+    buildCommand: |
+      apt-get update -y && 
+      apt-get install -y build-essential libcairo2-dev libpango1.0-dev libjpeg-dev libgif-dev librsvg2-dev &&
+      npm install
     startCommand: npm start
     envVars:
       - key: NODE_ENV
