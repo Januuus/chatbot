@@ -37,7 +37,9 @@ class Database {
     async query(sql, params = []) {
         const pool = await this.connect();
         try {
-            const [results] = await pool.execute(sql, params);
+            // Replace undefined values with null
+            const sanitizedParams = params.map(param => param === undefined ? null : param);
+            const [results] = await pool.execute(sql, sanitizedParams);
             return results;
         } catch (error) {
             console.error('Database query error:', error);
@@ -56,7 +58,14 @@ class Database {
             is_training_doc = VALUES(is_training_doc),
             updated_at = CURRENT_TIMESTAMP
         `;
-        return this.query(sql, [id, filename, content, mimeType, fileSize, isTrainingDoc]);
+        return this.query(sql, [
+            id || null,
+            filename || null,
+            content || null,
+            mimeType || null,
+            fileSize || null,
+            isTrainingDoc || false
+        ]);
     }
 
     async saveDocumentChunk(id, documentId, chunkIndex, content, metadata) {
@@ -67,7 +76,13 @@ class Database {
             content = VALUES(content),
             metadata = VALUES(metadata)
         `;
-        return this.query(sql, [id, documentId, chunkIndex, content, JSON.stringify(metadata)]);
+        return this.query(sql, [
+            id || null,
+            documentId || null,
+            chunkIndex || 0,
+            content || null,
+            metadata ? JSON.stringify(metadata) : null
+        ]);
     }
 
     async getDocument(id) {
@@ -75,7 +90,7 @@ class Database {
             SELECT * FROM documents
             WHERE id = ?
         `;
-        const results = await this.query(sql, [id]);
+        const results = await this.query(sql, [id || null]);
         return results[0];
     }
 
@@ -97,7 +112,7 @@ class Database {
             WHERE MATCH(content) AGAINST(? IN NATURAL LANGUAGE MODE)
             LIMIT ?
         `;
-        return this.query(sql, [searchTerm, limit]);
+        return this.query(sql, [searchTerm || '', limit || 10]);
     }
 
     async saveConversation(id, query, response, hasImage, outputTokens) {
@@ -106,11 +121,16 @@ class Database {
             VALUES (?, ?, ?, ?)
         `;
         const metadata = JSON.stringify({
-            hasImage,
-            outputTokens,
+            hasImage: hasImage || false,
+            outputTokens: outputTokens || 0,
             timestamp: new Date().toISOString()
         });
-        return this.query(sql, [id, query, response, metadata]);
+        return this.query(sql, [
+            id || null,
+            query || null,
+            response || null,
+            metadata || null
+        ]);
     }
 
     async getConversationHistory(limit = 10) {
@@ -119,7 +139,7 @@ class Database {
             ORDER BY created_at DESC
             LIMIT ?
         `;
-        return this.query(sql, [limit]);
+        return this.query(sql, [limit || 10]);
     }
 
     async cleanup() {
