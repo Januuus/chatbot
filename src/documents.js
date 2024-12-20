@@ -2,14 +2,14 @@ import { v4 as uuidv4 } from 'uuid';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import * as pdfjs from 'pdfjs-dist';
+import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.js';
 import db from './db.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Configure PDF.js worker
-const pdfjsWorker = await import('pdfjs-dist/build/pdf.worker.mjs');
+// Configure PDF.js for Node environment
+const pdfjsWorker = path.join(process.cwd(), 'node_modules/pdfjs-dist/legacy/build/pdf.worker.js');
 if (typeof window === 'undefined') {
     pdfjs.GlobalWorkerOptions.workerSrc = pdfjsWorker;
 }
