@@ -35,5 +35,13 @@ services:
         sync: false
       - key: DB_PASSWORD
         sync: false
+      - key: OPENAI_MODEL
+        value: gpt-3.5-turbo-16k
+      - key: MODEL
+        value: claude-3-sonnet-20240229
     healthCheckPath: /api/health
     autoDeploy: true
+    disk:
+      name: training-docs
+      mountPath: /opt/render/project/src/training-docs
+      sizeGB: 1
