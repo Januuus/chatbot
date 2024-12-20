@@ -1,44 +1,39 @@
 services:
   - type: web
-    name: ielts-teacher-assistant
+    name: teacher-chatbot
     env: node
-    buildCommand: |
-      npm install
-      chmod +x start.sh
-    startCommand: ./start.sh
+    buildCommand: npm install
+    startCommand: npm start
     envVars:
       - key: NODE_ENV
         value: production
       - key: PORT
         value: 3000
+      - key: CORS_ORIGIN
+        value: https://midnightblue-rabbit-284995.hostingersite.com
       - key: DB_HOST
-        sync: false # Will be set in Render dashboard
+        value: srv1156.hstgr.io
       - key: DB_USER
+        value: u640211876_chatbot
+      - key: DB_NAME
+        value: u640211876_chatbot
+      - key: DB_PORT
+        value: 3306
+      - key: MAX_TOKENS
+        value: 4096
+      - key: TEMPERATURE
+        value: 0.7
+      - key: MAX_FILE_SIZE
+        value: 209715200
+      - key: CHUNK_SIZE
+        value: 2000
+      - key: REQUIRED_API_KEY
+        value: d657a91c9708a863991e0eaf95a5c718
+      - key: CLAUDE_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
         sync: false
       - key: DB_PASSWORD
         sync: false
-      - key: DB_NAME
-        value: u640211876_chatbot
-      - key: CLAUDE_API_KEY
-        sync: false
-      - key: REQUIRED_API_KEY
-        sync: false
-      - key: MAX_FILE_SIZE
-        value: "209715200" # 200MB in bytes
-      - key: DB_PORT
-        value: "3306"
-      - key: MAX_TOKENS
-        value: "4096"
-      - key: TEMPERATURE
-        value: "0.7"
-      - key: RATE_LIMIT_WINDOW
-        value: "900000"
-      - key: RATE_LIMIT_MAX
-        value: "100"
-      - key: CORS_ORIGIN
-        value: "https://midnightblue-rabbit-284995.hostingersite.com"
-
-databases:
-  - name: ielts-assistant-db
-    type: mysql
-    ipAllowList: []
+    healthCheckPath: /api/health
+    autoDeploy: true

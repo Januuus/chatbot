@@ -15,18 +15,11 @@ export const config = {
         password: process.env.DB_PASSWORD || '',
         database: process.env.DB_NAME || 'claude_chatbot',
         waitForConnections: true,
-        connectionLimit: 5, // Reduced from 10
+        connectionLimit: 10,
         queueLimit: 0,
         enableKeepAlive: true,
         keepAliveInitialDelay: 0,
-        port: process.env.DB_PORT || 3306,
-        // Add connection pool settings
-        pool: {
-            min: 0,
-            max: 5,
-            idle: 10000,
-            acquire: 30000
-        }
+        port: process.env.DB_PORT || 3306
     },
 
     // Claude API configuration
@@ -35,6 +28,14 @@ export const config = {
         model: 'claude-3-sonnet-20240229',
         maxTokens: parseInt(process.env.MAX_TOKENS) || 4096,
         temperature: parseFloat(process.env.TEMPERATURE) || 0.7
+    },
+
+    // OpenAI API configuration (for chunk selection)
+    openai: {
+        apiKey: process.env.OPENAI_API_KEY,
+        model: 'gpt-3.5-turbo-16k',
+        maxTokens: 1000,
+        temperature: 0.0  // Keep it focused for chunk selection
     },
 
     // Document processing
@@ -49,7 +50,7 @@ export const config = {
             'image/webp',
             'image/gif'
         ],
-        chunkSize: parseInt(process.env.CHUNK_SIZE) || 1000
+        chunkSize: parseInt(process.env.CHUNK_SIZE) || 2000
     },
 
     // Rate limiting
@@ -66,9 +67,13 @@ export const config = {
 };
 
 // Validate required environment variables
-const requiredEnvVars = ['CLAUDE_API_KEY', 'REQUIRED_API_KEY'];
-const missingEnvVars = requiredEnvVars.filter(envVar => !process.env[envVar]);
+const requiredEnvVars = [
+    'CLAUDE_API_KEY',
+    'OPENAI_API_KEY',
+    'REQUIRED_API_KEY'
+];
 
+const missingEnvVars = requiredEnvVars.filter(envVar => !process.env[envVar]);
 if (missingEnvVars.length > 0) {
     throw new Error(`Missing required environment variables: ${missingEnvVars.join(', ')}`);
 }

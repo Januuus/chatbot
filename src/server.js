@@ -12,11 +12,12 @@ import config from './config.js';
 import db from './db.js';
 import claudeService from './claude.js';
 import documentService from './documents.js';
+import chunkSelector from './chunkSelector.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Process training documents
+// Process training documents from training-docs folder
 async function processTrainingDocuments() {
     console.log('Processing training documents...');
     try {
@@ -29,10 +30,11 @@ async function processTrainingDocuments() {
                 const fileObj = {
                     originalname: file,
                     buffer: fileBuffer,
-                    mimetype: file.endsWith('.pdf') ? 'application/pdf' : 'text/plain'
+                    mimetype: file.endsWith('.pdf') ? 'application/pdf' : 'text/plain',
+                    isTrainingDoc: true // Mark as training document
                 };
                 await documentService.processDocument(fileObj);
-                console.log(`Processed: ${file}`);
+                console.log(`Processed training document: ${file}`);
             }
             console.log('Training documents processed successfully');
         }
@@ -132,13 +134,23 @@ app.post('/api/chat', validateApiKey, handleUpload, async (req, res) => {
             });
         }
 
+        // First, get relevant chunks from training documents
+        const relevantChunks = await chunkSelector.selectRelevantChunks(query);
+        console.log(`Selected ${relevantChunks.length} relevant chunks from training docs`);
+
+        // Format training chunks
+        const trainingContent = relevantChunks.map(chunk =>
+            `From ${chunk.metadata.filename} (Part ${chunk.metadata.chunkNumber}/${chunk.metadata.totalChunks}):\n${chunk.content}`
+        ).join('\n\n');
+
+        // Handle user-uploaded files
         let processedContent = '';
         let imageData = null;
 
         if (req.files && req.files.length > 0) {
             try {
                 for (const file of req.files) {
-                    console.log('Processing file:', file.originalname, file.mimetype);
+                    console.log('Processing uploaded file:', file.originalname, file.mimetype);
 
                     if (file.mimetype.startsWith('image/')) {
                         // Use the first image for Claude's vision capability
@@ -150,11 +162,14 @@ app.post('/api/chat', validateApiKey, handleUpload, async (req, res) => {
                             console.log('Image data prepared for Claude');
                         }
                     } else {
-                        // Process other file types
-                        const result = await documentService.processDocument(file);
+                        // Process other uploaded files
+                        const result = await documentService.processDocument({
+                            ...file,
+                            isTrainingDoc: false // Mark as not a training document
+                        });
                         const doc = await db.getDocument(result.id);
                         if (doc && doc.content) {
-                            processedContent += `\n\nContent from ${file.originalname}:\n${doc.content}`;
+                            processedContent += `\n\nContent from uploaded file ${file.originalname}:\n${doc.content}`;
                         }
                     }
                 }
@@ -167,14 +182,20 @@ app.post('/api/chat', validateApiKey, handleUpload, async (req, res) => {
             }
         }
 
-        // Combine query with processed content
-        const fullQuery = processedContent ?
-            `${query}\n\nContext from uploaded files:${processedContent}` :
-            query;
+        // Combine everything for Claude
+        let fullQuery = query;
+        if (trainingContent) {
+            fullQuery += `\n\nRelevant context from teaching materials:\n${trainingContent}`;
+        }
+        if (processedContent) {
+            fullQuery += `\n\nContent from uploaded files:${processedContent}`;
+        }
 
         console.log('Sending to Claude:', {
             query: fullQuery,
-            hasImage: !!imageData
+            hasImage: !!imageData,
+            numTrainingChunks: relevantChunks.length,
+            hasUploadedContent: !!processedContent
         });
 
         // Send to Claude with image if present
@@ -198,7 +219,10 @@ app.post('/api/documents', validateApiKey, handleUpload, async (req, res) => {
         }
 
         const results = await Promise.all(
-            req.files.map(file => documentService.processDocument(file))
+            req.files.map(file => documentService.processDocument({
+                ...file,
+                isTrainingDoc: false // Mark as not a training document
+            }))
         );
 
         res.json(results);

@@ -2,6 +2,7 @@ import { v4 as uuidv4 } from 'uuid';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import pdfParse from 'pdf-parse';
 import db from './db.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -18,6 +19,8 @@ class DocumentService {
             'image/webp',
             'image/gif'
         ];
+        this.chunkSize = 2000; // characters per chunk
+        this.overlap = 200;    // overlap between chunks
     }
 
     async processDocument(file) {
@@ -29,7 +32,7 @@ class DocumentService {
                 throw new Error(`Unsupported file type: ${file.mimetype}`);
             }
 
-            // Generate unique ID
+            // Generate unique ID for the document
             const documentId = uuidv4();
 
             // Extract text content based on file type
@@ -37,26 +40,68 @@ class DocumentService {
             if (file.mimetype === 'text/plain') {
                 content = file.buffer.toString('utf8');
             } else if (file.mimetype === 'application/pdf') {
-                content = await this.extractTextFromPDF(file.buffer);
+                const pdfData = await pdfParse(file.buffer);
+                content = pdfData.text;
             } else if (file.mimetype.startsWith('image/')) {
-                // For images, we'll just store metadata
                 content = `Image file: ${file.originalname}`;
             }
 
-            // Save to database
-            await db.saveDocument(
-                documentId,
-                file.originalname || 'unnamed',
-                content || '',
-                file.mimetype || 'application/octet-stream',
-                file.size || 0
-            );
+            if (file.isTrainingDoc) {
+                // For training documents, split into chunks
+                const chunks = this.splitIntoChunks(content);
+                console.log(`Split ${file.originalname} into ${chunks.length} chunks`);
 
-            return {
-                id: documentId,
-                filename: file.originalname,
-                status: 'success'
-            };
+                // Save document record
+                await db.saveDocument(
+                    documentId,
+                    file.originalname,
+                    content,
+                    file.mimetype,
+                    file.size,
+                    true // isTrainingDoc
+                );
+
+                // Save chunks
+                for (let i = 0; i < chunks.length; i++) {
+                    const chunkId = uuidv4();
+                    await db.saveDocumentChunk(
+                        chunkId,
+                        documentId,
+                        i,
+                        chunks[i],
+                        {
+                            filename: file.originalname,
+                            chunkNumber: i + 1,
+                            totalChunks: chunks.length,
+                            isTrainingDoc: true
+                        }
+                    );
+                }
+
+                return {
+                    id: documentId,
+                    filename: file.originalname,
+                    chunks: chunks.length,
+                    status: 'success'
+                };
+
+            } else {
+                // For user uploads, save as a single document
+                await db.saveDocument(
+                    documentId,
+                    file.originalname,
+                    content,
+                    file.mimetype,
+                    file.size,
+                    false // not a training doc
+                );
+
+                return {
+                    id: documentId,
+                    filename: file.originalname,
+                    status: 'success'
+                };
+            }
 
         } catch (error) {
             console.error('Document processing error:', error);
@@ -64,15 +109,31 @@ class DocumentService {
         }
     }
 
-    async extractTextFromPDF(buffer) {
-        try {
-            // Simple text extraction for now
-            // You might want to use a proper PDF parsing library
-            return buffer.toString('utf8');
-        } catch (error) {
-            console.error('PDF extraction error:', error);
-            return '';
+    splitIntoChunks(content) {
+        const chunks = [];
+        const sentences = content.split(/[.!?]+\s+/); // Split by sentence boundaries
+        let currentChunk = '';
+
+        for (const sentence of sentences) {
+            // If adding this sentence would exceed chunk size
+            if (currentChunk.length + sentence.length > this.chunkSize) {
+                // Save current chunk
+                chunks.push(currentChunk.trim());
+                // Start new chunk with overlap from previous chunk
+                const words = currentChunk.split(' ');
+                currentChunk = words.slice(-this.overlap).join(' ') + ' ' + sentence;
+            } else {
+                // Add sentence to current chunk
+                currentChunk += (currentChunk ? ' ' : '') + sentence;
+            }
         }
+
+        // Add final chunk if not empty
+        if (currentChunk.trim()) {
+            chunks.push(currentChunk.trim());
+        }
+
+        return chunks;
     }
 
     async searchDocuments(searchTerm, limit = 10) {
@@ -97,6 +158,15 @@ class DocumentService {
             return await db.getDocument(id);
         } catch (error) {
             console.error('Get document error:', error);
+            throw error;
+        }
+    }
+
+    async getAllTrainingChunks() {
+        try {
+            return await db.getAllDocumentChunks(true); // Only get training chunks
+        } catch (error) {
+            console.error('Get chunks error:', error);
             throw error;
         }
     }

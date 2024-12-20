@@ -1,11 +1,5 @@
 import mysql from 'mysql2/promise';
 import config from './config.js';
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 class Database {
     constructor() {
@@ -15,39 +9,9 @@ class Database {
         this.retryDelay = 5000; // 5 seconds
     }
 
-    async initialize() {
-        try {
-            // Create a temporary connection without database
-            const connection = await mysql.createConnection({
-                host: config.database.host,
-                user: config.database.user,
-                password: config.database.password,
-                port: config.database.port,
-                multipleStatements: true
-            });
-
-            // Read and execute schema
-            const schemaPath = path.join(__dirname, '..', 'database', 'schema.sql');
-            const schema = fs.readFileSync(schemaPath, 'utf8');
-            await connection.query(schema);
-            console.log('Database schema initialized successfully');
-
-            // Close temporary connection
-            await connection.end();
-
-        } catch (error) {
-            console.error('Failed to initialize database schema:', error);
-            throw error;
-        }
-    }
-
     async connect() {
         try {
             if (!this.pool) {
-                // First try to initialize the schema
-                await this.initialize();
-
-                // Then create the connection pool
                 this.pool = mysql.createPool({
                     ...config.database,
                     waitForConnections: true,
@@ -81,6 +45,61 @@ class Database {
         }
     }
 
+    async saveDocument(id, filename, content, mimeType, fileSize, isTrainingDoc = false) {
+        const sql = `
+            INSERT INTO documents (id, filename, content, mime_type, file_size, is_training_doc)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON DUPLICATE KEY UPDATE
+            content = VALUES(content),
+            mime_type = VALUES(mime_type),
+            file_size = VALUES(file_size),
+            is_training_doc = VALUES(is_training_doc),
+            updated_at = CURRENT_TIMESTAMP
+        `;
+        return this.query(sql, [id, filename, content, mimeType, fileSize, isTrainingDoc]);
+    }
+
+    async saveDocumentChunk(id, documentId, chunkIndex, content, metadata) {
+        const sql = `
+            INSERT INTO document_chunks (id, document_id, chunk_index, content, metadata)
+            VALUES (?, ?, ?, ?, ?)
+            ON DUPLICATE KEY UPDATE
+            content = VALUES(content),
+            metadata = VALUES(metadata)
+        `;
+        return this.query(sql, [id, documentId, chunkIndex, content, JSON.stringify(metadata)]);
+    }
+
+    async getDocument(id) {
+        const sql = `
+            SELECT * FROM documents
+            WHERE id = ?
+        `;
+        const results = await this.query(sql, [id]);
+        return results[0];
+    }
+
+    async getAllDocumentChunks(trainingOnly = false) {
+        const sql = `
+            SELECT c.*, d.filename
+            FROM document_chunks c
+            JOIN documents d ON c.document_id = d.id
+            ${trainingOnly ? 'WHERE d.is_training_doc = true' : ''}
+            ORDER BY d.filename, c.chunk_index
+        `;
+        return this.query(sql);
+    }
+
+    async searchDocuments(searchTerm, limit = 10) {
+        const sql = `
+            SELECT id, filename, mime_type, file_size, created_at, is_training_doc
+            FROM documents
+            WHERE MATCH(content) AGAINST(? IN NATURAL LANGUAGE MODE)
+            LIMIT ?
+        `;
+        return this.query(sql, [searchTerm, limit]);
+    }
+
     async saveConversation(id, query, response, hasImage, outputTokens) {
         const sql = `
             INSERT INTO chat_history (id, user_message, bot_response, metadata)
@@ -101,38 +120,6 @@ class Database {
             LIMIT ?
         `;
         return this.query(sql, [limit]);
-    }
-
-    async saveDocument(id, filename, content, mimeType, fileSize) {
-        const sql = `
-            INSERT INTO documents (id, filename, content, mime_type, file_size)
-            VALUES (?, ?, ?, ?, ?)
-            ON DUPLICATE KEY UPDATE
-            content = VALUES(content),
-            mime_type = VALUES(mime_type),
-            file_size = VALUES(file_size),
-            updated_at = CURRENT_TIMESTAMP
-        `;
-        return this.query(sql, [id, filename, content, mimeType, fileSize]);
-    }
-
-    async getDocument(id) {
-        const sql = `
-            SELECT * FROM documents
-            WHERE id = ?
-        `;
-        const results = await this.query(sql, [id]);
-        return results[0];
-    }
-
-    async searchDocuments(searchTerm, limit = 10) {
-        const sql = `
-            SELECT id, filename, mime_type, file_size, created_at
-            FROM documents
-            WHERE MATCH(content) AGAINST(? IN NATURAL LANGUAGE MODE)
-            LIMIT ?
-        `;
-        return this.query(sql, [searchTerm, limit]);
     }
 
     async cleanup() {
