@@ -8,6 +8,12 @@ import db from './db.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Configure PDF.js worker
+const pdfjsWorker = await import('pdfjs-dist/build/pdf.worker.mjs');
+if (typeof window === 'undefined') {
+    pdfjs.GlobalWorkerOptions.workerSrc = pdfjsWorker;
+}
+
 class DocumentService {
     constructor() {
         this.allowedTypes = [
@@ -41,6 +47,7 @@ class DocumentService {
                 content = file.buffer.toString('utf8');
             } else if (file.mimetype === 'application/pdf') {
                 content = await this.extractTextFromPDF(file.buffer);
+                console.log(`Extracted ${content.length} characters from PDF`);
             } else if (file.mimetype.startsWith('image/')) {
                 content = `Image file: ${file.originalname}`;
             }
@@ -127,7 +134,7 @@ class DocumentService {
             return text;
         } catch (error) {
             console.error('PDF extraction error:', error);
-            return '';
+            throw error; // Throw error to handle it in processDocument
         }
     }
 
